@@ -52,11 +52,20 @@ scopes = [
 
 @st.cache_resource
 def get_sheets():
-    creds = Credentials.from_service_account_file(JSON_KEY_FILE, scopes=scopes)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    # Khi chạy trực tuyến trên Streamlit Cloud: Lấy từ Secrets
+    if "gcp_service_account" in st.secrets:
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    else:
+        # Khi chạy dưới máy tính cá nhân: Lấy từ file service_account.json
+        creds = Credentials.from_service_account_file(JSON_KEY_FILE, scopes=scopes)
+        
     client = gspread.authorize(creds)
     sh = client.open(SHEET_TITLE)
     return sh.worksheet("students"), sh.worksheet("grades"), sh.worksheet("behavior_logs")
-
 try:
     ws_students, ws_grades, ws_logs = get_sheets()
 except Exception as e:

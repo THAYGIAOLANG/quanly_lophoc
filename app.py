@@ -8,7 +8,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # 1. Cấu hình giao diện Streamlit
-st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>

@@ -8,7 +8,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # 1. Cấu hình giao diện Streamlit
-st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="LỚP HỌC THẦY HOÀNG", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -36,7 +36,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27 ✨</div>', unsafe_allow_html=True)
 # 2. Kết nối Google Sheets linh hoạt (Đã tối ưu hóa tránh nghẽn Quota API)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_KEY_FILE = os.path.join(current_dir, "service_account.json")

@@ -7,14 +7,12 @@ import os
 import gspread
 from google.oauth2.service_account import Credentials
 
-# 1. Cấu hình giao diện Streamlit tối ưu hiển thị TV
+# 1. Cấu hình giao diện Streamlit
 st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-        header[data-testid="stHeader"] {
-            display: none !important;
-        }
+        header[data-testid="stHeader"] { display: none !important; }
         .block-container {
             padding-top: 2rem !important;
             padding-bottom: 1rem !important;
@@ -40,7 +38,7 @@ st.markdown("""
 
 st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
 
-# 2. Kết nối Google Sheets qua google-auth & gspread
+# 2. Kết nối Google Sheets linh hoạt (Local & Cloud)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_KEY_FILE = os.path.join(current_dir, "service_account.json")
 SHEET_TITLE = "Database_So_Theo_Doi_Hoc_Tap"
@@ -51,49 +49,64 @@ scopes = [
 ]
 
 @st.cache_resource
-def get_sheets():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    # Khi chạy trực tuyến trên Streamlit Cloud: Lấy từ Secrets
+def get_sh():
     if "gcp_service_account" in st.secrets:
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     else:
-        # Khi chạy dưới máy tính cá nhân: Lấy từ file service_account.json
         creds = Credentials.from_service_account_file(JSON_KEY_FILE, scopes=scopes)
-        
     client = gspread.authorize(creds)
-    sh = client.open(SHEET_TITLE)
-    return sh.worksheet("students"), sh.worksheet("grades"), sh.worksheet("behavior_logs")
+    return client.open(SHEET_TITLE)
+
 try:
-    ws_students, ws_grades, ws_logs = get_sheets()
+    sh = get_sh()
 except Exception as e:
     st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
     st.stop()
 
-def load_all_data():
-    df_s = pd.DataFrame(ws_students.get_all_records())
-    df_g = pd.DataFrame(ws_grades.get_all_records())
-    df_l = pd.DataFrame(ws_logs.get_all_records())
+# Đọc cấu hình và dữ liệu hệ thống
+@st.cache_data(ttl=300)
+def load_base_data():
+    ws_config = sh.worksheet("CONFIG")
+    ws_grades = sh.worksheet("grades")
+    ws_logs = sh.worksheet("behavior_logs")
     
-    for df in [df_s, df_g, df_l]:
+    df_config = pd.DataFrame(ws_config.get_all_records())
+    df_grades = pd.DataFrame(ws_grades.get_all_records())
+    df_logs = pd.DataFrame(ws_logs.get_all_records())
+    
+    for df in [df_config, df_grades, df_logs]:
         if not df.empty:
             df.columns = [str(c).lower().strip() for c in df.columns]
             if "ma_hs" in df.columns and "stt" not in df.columns:
                 df.rename(columns={"ma_hs": "stt"}, inplace=True)
                 
-    return df_s, df_g, df_l
+    return df_config, df_grades, df_logs
 
-df_students, df_grades, df_logs = load_all_data()
+df_config, df_grades, df_logs = load_base_data()
+ws_grades = sh.worksheet("grades")
+ws_logs = sh.worksheet("behavior_logs")
 
-# 3. Quản lý trạng thái Đăng nhập
+# Đọc danh sách học sinh theo từng sheet lớp riêng biệt
+def load_class_students(class_name):
+    try:
+        ws_class = sh.worksheet(str(class_name).strip())
+        df = pd.DataFrame(ws_class.get_all_records())
+        if not df.empty:
+            df.columns = [str(c).lower().strip() for c in df.columns]
+            df["stt_display"] = df["stt"].astype(str).str.strip()
+            df["lop"] = str(class_name).strip()
+            return df
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+# 3. Quản lý Đăng nhập
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 st.sidebar.title("⚙️ QUẢN TRỊ LỚP HỌC")
-
 st.sidebar.markdown("---")
+
 if not st.session_state["authenticated"]:
     st.sidebar.subheader("🔒 Đăng nhập Giáo viên")
     user_input = st.sidebar.text_input("Tài khoản:", key="login_user")
@@ -114,46 +127,41 @@ else:
 
 st.sidebar.markdown("---")
 
-# Danh sách lựa chọn môn: "Toán" hoặc "Tin"
-mon_list = ["Toán", "Tin"]
-selected_mon = st.sidebar.selectbox("📖 Chọn Môn học:", mon_list)
-
-# Cấu hình số cột TX: Toán 4 cột, Tin 2 cột
-if selected_mon == "Toán":
-    tx_cols = ["tx1", "tx2", "tx3", "tx4"]
+# Đọc danh sách môn và lớp từ CONFIG
+if not df_config.empty and "mon_hoc" in df_config.columns:
+    available_mon = sorted(df_config["mon_hoc"].dropna().unique().tolist())
 else:
-    tx_cols = ["tx1", "tx2"]
+    available_mon = ["Toán", "Tin"]
 
-# Lọc danh sách lớp từ Google Sheet (dùng startswith để không bị nhầm số 6 ở cuối của 9A6)
-if not df_students.empty and "lop" in df_students.columns:
-    all_classes = [str(c).strip() for c in df_students["lop"].dropna().unique() if str(c).strip() != ""]
-    if selected_mon == "Toán":
-        available_classes = sorted([c for c in all_classes if c.startswith("6")])
+selected_mon = st.sidebar.selectbox("📖 Chọn Môn học:", available_mon)
+
+# Lọc lớp và số cột TX từ CONFIG
+if not df_config.empty and "mon_hoc" in df_config.columns and "lop" in df_config.columns:
+    mon_cfg = df_config[df_config["mon_hoc"].astype(str).str.strip().str.lower() == selected_mon.strip().lower()]
+    available_classes = sorted(mon_cfg["lop"].dropna().unique().tolist())
+    
+    # Xác định số cột TX
+    if not mon_cfg.empty and "so_cot_tx" in mon_cfg.columns:
+        num_tx = int(pd.to_numeric(mon_cfg["so_cot_tx"], errors="coerce").fillna(2).iloc[0])
     else:
-        available_classes = sorted([c for c in all_classes if c.startswith("9")])
-        
-    if not available_classes:
-        available_classes = sorted(all_classes)
+        num_tx = 4 if "toán" in selected_mon.lower() else 2
 else:
     available_classes = ["6A2", "6A3"] if selected_mon == "Toán" else ["9A1", "9A2", "9A5", "9A6", "9A7"]
+    num_tx = 4 if "toán" in selected_mon.lower() else 2
 
+tx_cols = [f"tx{i+1}" for i in range(num_tx)]
 selected_lop = st.sidebar.selectbox("🏫 Chọn Lớp:", available_classes)
 
 if st.sidebar.button("🔄 Tải lại dữ liệu"):
     st.cache_resource.clear()
+    st.cache_data.clear()
     st.rerun()
 
-# Lọc học sinh theo lớp và tự động đánh số STT chuẩn 1..N
-if not df_students.empty and "lop" in df_students.columns:
-    current_students = df_students[df_students["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper()].copy()
-    if not current_students.empty:
-        current_students.reset_index(drop=True, inplace=True)
-        current_students["stt_display"] = (current_students.index + 1).astype(str)
-else:
-    current_students = pd.DataFrame()
+# Lấy danh sách học sinh của lớp được chọn
+current_students = load_class_students(selected_lop)
 
-# Lọc điểm theo lớp và môn
-mon_keyword = "toán" if selected_mon == "Toán" else "tin"
+# Lọc điểm theo môn và lớp
+mon_keyword = selected_mon.strip().lower()
 if not df_grades.empty and "lop" in df_grades.columns and "mon_hoc" in df_grades.columns:
     current_grades = df_grades[
         (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper()) & 
@@ -164,7 +172,7 @@ if not df_grades.empty and "lop" in df_grades.columns and "mon_hoc" in df_grades
 else:
     current_grades = pd.DataFrame()
 
-# Lọc nhật ký thi đua và chuẩn hóa số thập phân dấu chấm
+# Lọc nhật ký thi đua
 if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.columns:
     current_logs = df_logs[
         (df_logs["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper()) & 
@@ -178,7 +186,7 @@ if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.colum
 else:
     current_logs = pd.DataFrame()
 
-# Ghép dữ liệu hiển thị theo STT
+# Ghép bảng dữ liệu
 if not current_students.empty:
     if not current_grades.empty and "stt" in current_grades.columns:
         merged_view = current_students.merge(current_grades, left_on=["stt_display", "lop"], right_on=["stt", "lop"], how="left")
@@ -191,7 +199,7 @@ for c in tx_cols:
     if c not in merged_view.columns:
         merged_view[c] = ""
 
-# Tính tổng điểm cộng (+) và trừ (-)
+# Tính điểm cộng và điểm trừ
 if not current_logs.empty and "type" in current_logs.columns and "stt" in current_logs.columns:
     plus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
     minus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "MINUS"]
@@ -226,36 +234,59 @@ else:
     tab_picker = None
     tab_export = None
 
-# --- TAB 1: BẢNG TỔNG HỢP & GHI NHẬN NHANH ---
+# --- TAB 1: BẢNG TỔNG HỢP & GHI NHẬN NHANH (MỤC 1: ĐẦY ĐỦ CỘNG & TRỪ) ---
 with tab_tv:
     if st.session_state["authenticated"] and not current_students.empty:
-        st.markdown("#### ⚡ Ghi nhận điểm thưởng nhanh (Xung phong / Phát biểu)")
+        st.markdown("#### ⚡ Ghi nhận thi đua nhanh tại lớp")
         
         student_options = [f"{row['stt_display']} - {row['ho_va_ten']}" for _, row in current_students.iterrows()]
         
-        col_hs, col_diem, col_btn = st.columns([3, 2, 2])
+        col_type, col_hs, col_val, col_btn = st.columns([2, 3, 2, 2])
+        with col_type:
+            action_type = st.radio("Hành động:", ["⭐ Cộng điểm (+)", "⚠️ Nhắc nhở (-)"], horizontal=True, key=f"act_type_{selected_lop}")
         with col_hs:
-            # Đoạn code mới (tự động làm mới khi đổi lớp):
-            selected_student_str = st.selectbox("Chọn học sinh xung phong:", student_options, key=f"quick_student_{selected_lop}")
-        with col_diem:
-            delta_score = st.select_slider(
-                "Mức điểm thưởng (+):",
-                options=[0.25, 0.5, 0.75, 1.0],
-                value=0.25,
-                format_func=lambda x: f"+{x:.2f} điểm"
-            )
-        with col_btn:
-            st.write("") 
-            if st.button("⭐ Cộng điểm ngay", type="primary", key="btn_quick_add"):
-                target_stt = selected_student_str.split(" - ")[0].strip()
-                ws_logs.append_row([
-                    f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
-                    str(date.today()), "PLUS", float(delta_score), "Xung phong phát biểu", ""
-                ], value_input_option="USER_ENTERED")
-                st.success(f"Đã cộng +{delta_score:.2f} điểm cho {selected_student_str}!")
-                time.sleep(1)
-                st.cache_resource.clear()
-                st.rerun()
+            selected_student_str = st.selectbox("Chọn học sinh:", student_options, key=f"quick_student_{selected_lop}")
+        
+        target_stt = selected_student_str.split(" - ")[0].strip()
+        
+        if "Cộng điểm" in action_type:
+            with col_val:
+                delta_score = st.select_slider(
+                    "Mức cộng (+):",
+                    options=[0.25, 0.5, 0.75, 1.0],
+                    value=0.25,
+                    format_func=lambda x: f"+{x:.2f}"
+                )
+            with col_btn:
+                st.write("")
+                if st.button("⭐ Cộng điểm ngay", type="primary", key="btn_quick_add"):
+                    ws_logs.append_row([
+                        f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
+                        str(date.today()), "PLUS", float(delta_score), "Xung phong phát biểu", ""
+                    ], value_input_option="USER_ENTERED")
+                    st.success(f"Đã cộng +{delta_score:.2f} cho {selected_student_str}!")
+                    time.sleep(0.8)
+                    st.cache_data.clear()
+                    st.rerun()
+        else:
+            with col_val:
+                minus_score = st.select_slider(
+                    "Mức phạt (-):",
+                    options=[-0.25, -0.5, -0.75, -1.0],
+                    value=-0.25,
+                    format_func=lambda x: f"{x:.2f}"
+                )
+            with col_btn:
+                st.write("")
+                if st.button("⚠️ Ghi nhận lỗi", type="secondary", key="btn_quick_sub"):
+                    ws_logs.append_row([
+                        f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
+                        str(date.today()), "MINUS", float(minus_score), "Nhắc nhở nề nếp / học tập", ""
+                    ], value_input_option="USER_ENTERED")
+                    st.warning(f"Đã trừ {minus_score:.2f} điểm của {selected_student_str}!")
+                    time.sleep(0.8)
+                    st.cache_data.clear()
+                    st.rerun()
         st.markdown("---")
 
     st.markdown("### 🌟 Tiến độ & Tương tác toàn lớp")
@@ -283,28 +314,46 @@ with tab_tv:
             height=450
         )
     else:
-        st.info("Chưa có danh sách học sinh cho lớp này trên Google Sheets.")
+        st.info(f"Chưa có sheet danh sách học sinh mang tên '{selected_lop}' trên Google Sheets.")
 
-# --- TAB 2: VÒNG QUAY NGẪU NHIÊN ---
+# --- TAB 2: VÒNG QUAY GỌI BÀI (MỤC 2: CÓ CHỌN THEO ĐIỂM THƯỞNG +) ---
 if tab_picker is not None:
     with tab_picker:
-        st.markdown("### 🎯 Vòng quay gọi bài ngẫu nhiên")
+        st.markdown("### 🎯 Vòng quay gọi bài công bằng")
         
         col_p1, col_p2 = st.columns([1, 2])
         with col_p1:
-            target_tx = st.selectbox("Chọn cột điểm cần kiểm tra:", tx_cols)
-            picker_mode = st.radio("Chế độ lọc:", ["Ưu tiên bạn chưa có điểm ở cột này", "Ngẫu nhiên toàn bộ lớp"])
+            picker_type = st.radio("Mục tiêu gọi tên:", ["Theo cột điểm TX", "⭐ Theo điểm thưởng (+)"], horizontal=True)
             
-            if not merged_view.empty:
-                if picker_mode == "Ưu tiên bạn chưa có điểm ở cột này":
-                    pool = merged_view[merged_view[target_tx].astype(str).str.strip() == ""]
-                    if pool.empty:
-                        st.success("🎉 Tất cả học sinh đều đã có điểm ở cột này!")
+            if picker_type == "Theo cột điểm TX":
+                target_tx = st.selectbox("Chọn cột TX cần kiểm tra:", tx_cols)
+                picker_mode = st.radio("Chế độ lọc:", ["Ưu tiên bạn chưa có điểm ở cột này", "Ngẫu nhiên toàn bộ lớp"])
+                
+                if not merged_view.empty:
+                    if picker_mode == "Ưu tiên bạn chưa có điểm ở cột này":
+                        pool = merged_view[merged_view[target_tx].astype(str).str.strip() == ""]
+                        if pool.empty:
+                            st.success("🎉 Tất cả học sinh đều đã có điểm ở cột này!")
+                            pool = merged_view
+                    else:
                         pool = merged_view
                 else:
-                    pool = merged_view
+                    pool = pd.DataFrame()
             else:
-                pool = pd.DataFrame()
+                # Nâng cấp thuật toán lọc theo Điểm Cộng (+)
+                target_tx = "tx1"  # Mặc định ghi nhận
+                st.info("💡 Hệ thống sẽ tự động ưu tiên các bạn chưa có sao thưởng (0.00), sau đó đến các bạn có điểm thưởng thấp nhất lớp.")
+                if not merged_view.empty:
+                    zero_star_pool = merged_view[merged_view["Diem_Cong"] == 0.0]
+                    if not zero_star_pool.empty:
+                        st.caption(f"📌 Đang có {len(zero_star_pool)} bạn chưa có điểm thưởng.")
+                        pool = zero_star_pool
+                    else:
+                        min_score = merged_view["Diem_Cong"].min()
+                        pool = merged_view[merged_view["Diem_Cong"] == min_score]
+                        st.caption(f"📌 Tất cả đã có điểm, đang ưu tiên nhóm điểm thấp nhất (+{min_score:.2f}).")
+                else:
+                    pool = pd.DataFrame()
 
             btn_spin = st.button("🎲 QUAY GỌI TÊN", type="primary")
 
@@ -321,7 +370,8 @@ if tab_picker is not None:
                     
                 ten_hs = chosen_row.get('ho_va_ten', 'Học sinh')
                 stt_hs = chosen_row.get('stt_display', '')
-                placeholder.markdown(f"<h1 style='text-align: center; color: #2ecc71; border: 3px solid #2ecc71; padding: 15px; border-radius: 12px;'>🎉 {ten_hs} (STT: {stt_hs})</h1>", unsafe_allow_html=True)
+                d_cong = chosen_row.get('Diem_Cong', 0.0)
+                placeholder.markdown(f"<h1 style='text-align: center; color: #2ecc71; border: 3px solid #2ecc71; padding: 15px; border-radius: 12px;'>🎉 {ten_hs} (STT: {stt_hs}) — ⭐ +{d_cong:.2f}</h1>", unsafe_allow_html=True)
                 st.session_state["chosen_student"] = chosen_row
                 
             if "chosen_student" in st.session_state:
@@ -329,15 +379,16 @@ if tab_picker is not None:
                 ten_hien_thi = s.get('ho_va_ten', 'Học sinh')
                 stt_hien_thi = str(s.get('stt_display', ''))
                 
-                st.markdown(f"#### 📝 Chấm điểm cho: **STT {stt_hien_thi} - {ten_hien_thi}**")
+                st.markdown(f"#### 📝 Đánh giá cho: **STT {stt_hien_thi} - {ten_hien_thi}**")
                 action = st.radio("Chọn thao tác:", ["Vào điểm trực tiếp cột TX", "Cộng điểm thưởng (+)", "Trừ điểm / Ghi nhận lỗi (-)"], horizontal=True)
                 
                 if action == "Vào điểm trực tiếp cột TX":
+                    col_target_sel = st.selectbox("Chọn cột TX muốn vào điểm:", tx_cols, key="tx_pick_box")
                     c_score, c_save = st.columns([2, 1])
-                    score_val = c_score.number_input(f"Nhập điểm {target_tx.upper()}:", min_value=0.0, max_value=10.0, value=8.0, step=0.25, format="%.2f")
+                    score_val = c_score.number_input(f"Nhập điểm {col_target_sel.upper()}:", min_value=0.0, max_value=10.0, value=8.0, step=0.25, format="%.2f")
                     if c_save.button("💾 Lưu điểm TX"):
                         cell_list = ws_grades.findall(stt_hien_thi)
-                        col_index = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(target_tx) + 4
+                        col_index = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(col_target_sel) + 4
                         updated = False
                         for cell in cell_list:
                             row_vals = ws_grades.row_values(cell.row)
@@ -351,8 +402,8 @@ if tab_picker is not None:
                             ws_grades.append_row(new_row, value_input_option="USER_ENTERED")
                             
                         st.success("Đã lưu điểm thành công!")
-                        time.sleep(1)
-                        st.cache_resource.clear()
+                        time.sleep(0.8)
+                        st.cache_data.clear()
                         st.rerun()
 
                 elif action == "Cộng điểm thưởng (+)":
@@ -365,8 +416,8 @@ if tab_picker is not None:
                             str(date.today()), "PLUS", float(delta_val), reason, ""
                         ], value_input_option="USER_ENTERED")
                         st.success("Đã cộng điểm thành công!")
-                        time.sleep(1)
-                        st.cache_resource.clear()
+                        time.sleep(0.8)
+                        st.cache_data.clear()
                         st.rerun()
 
                 else:
@@ -379,8 +430,8 @@ if tab_picker is not None:
                             str(date.today()), "MINUS", float(minus_val), err_type, ""
                         ], value_input_option="USER_ENTERED")
                         st.warning("Đã ghi nhận nhắc nhở!")
-                        time.sleep(1)
-                        st.cache_resource.clear()
+                        time.sleep(0.8)
+                        st.cache_data.clear()
                         st.rerun()
 
 # --- TAB 3: BẢNG XẾP HẠNG TÍCH CỰC ---

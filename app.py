@@ -37,8 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
-
-# 2. Kết nối Google Sheets linh hoạt (Local & Cloud)
+# 2. Kết nối Google Sheets linh hoạt (Đã tối ưu hóa tránh nghẽn Quota API)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_KEY_FILE = os.path.join(current_dir, "service_account.json")
 SHEET_TITLE = "Database_So_Theo_Doi_Hoc_Tap"
@@ -49,44 +48,46 @@ scopes = [
 ]
 
 @st.cache_resource
-def get_sh():
+def get_google_sheets_connection():
     if "gcp_service_account" in st.secrets:
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     else:
         creds = Credentials.from_service_account_file(JSON_KEY_FILE, scopes=scopes)
     client = gspread.authorize(creds)
-    return client.open(SHEET_TITLE)
+    sh = client.open(SHEET_TITLE)
+    return sh
 
 try:
-    sh = get_sh()
-except Exception as e:
-    st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
-    st.stop()
-
-# Đọc cấu hình và dữ liệu hệ thống
-@st.cache_data(ttl=300)
-def load_base_data():
-    ws_config = sh.worksheet("CONFIG")
+    sh = get_google_sheets_connection()
     ws_grades = sh.worksheet("grades")
     ws_logs = sh.worksheet("behavior_logs")
-    
-    df_config = pd.DataFrame(ws_config.get_all_records())
-    df_grades = pd.DataFrame(ws_grades.get_all_records())
-    df_logs = pd.DataFrame(ws_logs.get_all_records())
-    
-    for df in [df_config, df_grades, df_logs]:
-        if not df.empty:
-            df.columns = [str(c).lower().strip() for c in df.columns]
-            if "ma_hs" in df.columns and "stt" not in df.columns:
-                df.rename(columns={"ma_hs": "stt"}, inplace=True)
-                
-    return df_config, df_grades, df_logs
+except Exception as e:
+    st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+    st.info("💡 Nếu gặp lỗi Quota API, hãy đợi khoảng 30-60 giây rồi tải lại trang.")
+    st.stop()
+
+# Đọc dữ liệu hệ thống với bộ nhớ đệm (Cache 5 phút để tránh nghẽn API)
+@st.cache_data(ttl=300)
+def load_base_data():
+    try:
+        ws_config = sh.worksheet("CONFIG")
+        df_c = pd.DataFrame(ws_config.get_all_records())
+        df_g = pd.DataFrame(ws_grades.get_all_records())
+        df_l = pd.DataFrame(ws_logs.get_all_records())
+        
+        for df in [df_c, df_g, df_l]:
+            if not df.empty:
+                df.columns = [str(c).lower().strip() for c in df.columns]
+                if "ma_hs" in df.columns and "stt" not in df.columns:
+                    df.rename(columns={"ma_hs": "stt"}, inplace=True)
+        return df_c, df_g, df_l
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 df_config, df_grades, df_logs = load_base_data()
-ws_grades = sh.worksheet("grades")
-ws_logs = sh.worksheet("behavior_logs")
 
-# Đọc danh sách học sinh theo từng sheet lớp riêng biệt
+# Đọc danh sách học sinh theo từng sheet lớp riêng biệt có bộ nhớ đệm
+@st.cache_data(ttl=300)
 def load_class_students(class_name):
     try:
         ws_class = sh.worksheet(str(class_name).strip())
@@ -99,7 +100,6 @@ def load_class_students(class_name):
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
-
 # 3. Quản lý Đăng nhập
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False

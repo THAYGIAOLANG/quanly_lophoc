@@ -68,7 +68,8 @@ except Exception as e:
     st.stop()
 
 # ==================== PHẦN XỬ LÝ XÁC THỰC BẢO MẬT TRÊN ĐIỆN THOẠI ====================
-MASTER_KEY = "Toan6Tin9"
+# Lấy chìa khóa độc quyền từ Streamlit Secrets trên đám mây
+MASTER_KEY = st.secrets["MASTER_KEY"]
 query_params = st.query_params
 
 if "auth_token" in query_params:

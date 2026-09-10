@@ -69,7 +69,14 @@ except Exception as e:
 
 # ==================== PHẦN XỬ LÝ XÁC THỰC BẢO MẬT TRÊN ĐIỆN THOẠI ====================
 # Lấy chìa khóa độc quyền từ Streamlit Secrets trên đám mây
-MASTER_KEY = st.secrets["MASTER_KEY"]
+# Rút chìa khóa bảo mật trực tiếp từ Streamlit Secrets
+if "MASTER_KEY" in st.secrets:
+    MASTER_KEY = str(st.secrets["MASTER_KEY"]).strip()
+elif "gcp_service_account" in st.secrets and "MASTER_KEY" in st.secrets["gcp_service_account"]:
+    MASTER_KEY = str(st.secrets["gcp_service_account"]["MASTER_KEY"]).strip()
+else:
+    st.error("⚠️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
+    st.stop()
 query_params = st.query_params
 
 if "auth_token" in query_params:

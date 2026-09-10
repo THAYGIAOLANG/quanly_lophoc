@@ -38,7 +38,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Kết nối Google Sheets linh hoạt
+# 2. Kết nối Google Sheets linh hoạt (Tối ưu hóa tránh nghẽn API)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_KEY_FILE = os.path.join(current_dir, "service_account.json")
 SHEET_TITLE = "Database_So_Theo_Doi_Hoc_Tap"
@@ -64,19 +64,25 @@ try:
     ws_auth = sh.worksheet("auth_sessions")
 except Exception as e:
     st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+    st.info("💡 Nếu gặp lỗi Quota API, hãy đợi khoảng 30-60 giây rồi tải lại trang.")
     st.stop()
 
-# ==================== PHẦN XỬ LÝ QUÉT QR TRÊN ĐIỆN THOẠI ====================
+# ==================== PHẦN XỬ LÝ XÁC THỰC BẢO MẬT TRÊN ĐIỆN THOẠI ====================
+MASTER_KEY = "Toan6Tin9"
 query_params = st.query_params
+
 if "auth_token" in query_params:
     token = query_params["auth_token"]
     st.markdown('<div class="teacher-banner">📱 XÁC THỰC QUYỀN GIÁO VIÊN</div>', unsafe_allow_html=True)
     st.write("")
-    st.info(f"Yêu cầu mở khóa phiên: **{token}**")
     
-    auth_pass = st.text_input("Nhập mã bảo mật giáo viên:", type="password", key="mobile_auth_key")
-    if st.button("✅ Phê duyệt đăng nhập cho máy tính lớp", type="primary"):
-        if auth_pass == "Toan6Tin9":
+    # Kiểm tra quyền: Nếu có kèm chìa khóa bí mật của thầy
+    has_key = query_params.get("key") == MASTER_KEY
+    
+    if has_key:
+        st.success(f"Đã nhận diện thiết bị Giáo viên! (Phiên: **{token}**)")
+        st.caption("Chỉ nhấn phê duyệt nếu thầy đang đứng trước màn hình lớp học.")
+        if st.button("✅ Phê duyệt đăng nhập cho máy tính lớp", type="primary"):
             try:
                 cell_matches = ws_auth.findall(token)
                 if cell_matches:
@@ -88,9 +94,26 @@ if "auth_token" in query_params:
                 st.balloons()
                 st.info("Máy tính tại lớp học đã được mở quyền quản trị.")
             except Exception as err:
-                st.error(f"Lỗi phê duyệt: {err}")
-        else:
-            st.error("Mã bảo mật không chính xác!")
+                st.error(f"Lỗi: {err}")
+    else:
+        # Nếu học sinh quét mã hoặc chưa gắn chìa khóa bí mật
+        st.warning(f"Đang yêu cầu mở khóa phiên: **{token}**")
+        input_pass = st.text_input("Nhập mã bảo mật giáo viên:", type="password", key="sec_key_input")
+        if st.button("✅ Xác thực & Phê duyệt", type="primary"):
+            if input_pass == MASTER_KEY:
+                try:
+                    cell_matches = ws_auth.findall(token)
+                    if cell_matches:
+                        for c in cell_matches:
+                            ws_auth.update_cell(c.row, 3, "APPROVED")
+                    else:
+                        ws_auth.append_row([token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "APPROVED"])
+                    st.success("🎉 ĐÃ PHÊ DUYỆT THÀNH CÔNG!")
+                    st.balloons()
+                except Exception as err:
+                    st.error(f"Lỗi: {err}")
+            else:
+                st.error("⛔ Mã bảo mật không chính xác! Quyền phê duyệt bị từ chối.")
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
@@ -129,7 +152,7 @@ def load_class_students(class_name):
     except Exception:
         return pd.DataFrame()
 
-# 3. Quản trị đăng nhập bằng mã QR
+# 3. Quản lý trạng thái đăng nhập
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -152,7 +175,7 @@ if not st.session_state["authenticated"]:
     img_qr = qr.make_image(fill_color="black", back_color="white")
     buf = io.BytesIO()
     img_qr.save(buf, format="PNG")
-    st.sidebar.image(buf.getvalue(), caption="Mã QR xác thực phiên", use_container_width=True)
+    st.sidebar.image(buf.getvalue(), caption="Mã QR phiên làm việc", use_container_width=True)
     
     col_c1, col_c2 = st.sidebar.columns(2)
     with col_c1:
@@ -184,7 +207,7 @@ else:
 
 st.sidebar.markdown("---")
 
-# Bộ lọc Môn và Lớp
+# Bộ lọc Môn và Lớp từ CONFIG
 if not df_config.empty and "mon_hoc" in df_config.columns:
     available_mon = sorted(df_config["mon_hoc"].dropna().unique().tolist())
 else:
@@ -213,7 +236,7 @@ if st.sidebar.button("🔄 Tải lại dữ liệu"):
 
 current_students = load_class_students(selected_lop)
 
-# Lọc điểm và nhật ký
+# Lọc điểm và nhật ký thi đua
 mon_keyword = selected_mon.strip().lower()
 if not df_grades.empty and "lop" in df_grades.columns and "mon_hoc" in df_grades.columns:
     current_grades = df_grades[
@@ -235,6 +258,7 @@ if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.colum
     if "delta" in current_logs.columns:
         current_logs["delta"] = current_logs["delta"].astype(str).str.replace(",", ".", regex=False)
         current_logs["delta"] = pd.to_numeric(current_logs["delta"], errors="coerce").fillna(0.0)
+        # Chốt chặn an toàn: Tự đưa các giá trị ghi nhầm do lỗi hàng nghìn về thập phân
         current_logs["delta"] = current_logs["delta"].apply(lambda x: x / 100.0 if abs(x) >= 20.0 else x)
 else:
     current_logs = pd.DataFrame()
@@ -284,7 +308,7 @@ else:
     tab_picker = None
     tab_export = None
 
-# TAB 1: BẢNG TỔNG HỢP VÀ GHI ĐIỂM
+# TAB 1: BẢNG TỔNG HỢP VÀ GHI ĐIỂM (CẢ CỘNG & TRỪ)
 with tab_tv:
     if st.session_state["authenticated"] and not current_students.empty:
         st.markdown("#### ⚡ Ghi nhận thi đua nhanh tại lớp")
@@ -337,7 +361,7 @@ with tab_tv:
         display_df.rename(columns=rename_dict, inplace=True)
         st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
 
-# TAB 2: QUAY TÊN NGẪU NHIÊN
+# TAB 2: QUAY TÊN NGẪU NHIÊN (CÓ LỌC ĐIỂM CỘNG +)
 if tab_picker is not None:
     with tab_picker:
         st.markdown("### 🎯 Vòng quay gọi bài công bằng")
@@ -353,7 +377,7 @@ if tab_picker is not None:
                 else: pool = pd.DataFrame()
             else:
                 target_tx = "tx1"
-                st.info("💡 Ưu tiên các bạn chưa có sao thưởng (0.00), sau đó đến nhóm điểm thưởng thấp nhất lớp.")
+                st.info("💡 Hệ thống ưu tiên các bạn chưa có sao thưởng (0.00), sau đó đến nhóm điểm thưởng thấp nhất lớp.")
                 if not merged_view.empty:
                     zero_star_pool = merged_view[merged_view["Diem_Cong"] == 0.0]
                     pool = zero_star_pool if not zero_star_pool.empty else merged_view[merged_view["Diem_Cong"] == merged_view["Diem_Cong"].min()]

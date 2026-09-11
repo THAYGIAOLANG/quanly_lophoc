@@ -22,7 +22,7 @@ st.markdown("""
             padding-right: 2rem !important;
         }
         .teacher-banner {
-            background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
+            background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
             color: #ffffff;
             padding: 12px 20px;
             border-radius: 10px;

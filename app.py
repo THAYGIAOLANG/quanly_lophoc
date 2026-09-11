@@ -125,7 +125,7 @@ if "auth_token" in query_params:
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27✨</div>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=300)
 def load_base_data():

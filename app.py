@@ -10,7 +10,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # 1. Cấu hình giao diện Streamlit
-st.set_page_config(page_title="LỚP HỌC THẦY HOÀNG", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -125,7 +125,7 @@ if "auth_token" in query_params:
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27 ✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=300)
 def load_base_data():
@@ -369,49 +369,10 @@ with tab_tv:
         display_df.rename(columns=rename_dict, inplace=True)
         st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
 
-# TAB 2: QUAY TÊN NGẪU NHIÊN (CÓ LỌC ĐIỂM CỘNG +)
-if tab_picker is not None:
-    with tab_picker:
-        st.markdown("### 🎯 Vòng quay gọi bài công bằng")
-        col_p1, col_p2 = st.columns([1, 2])
-        with col_p1:
-            picker_type = st.radio("Mục tiêu gọi tên:", ["Theo cột điểm TX", "⭐ Theo điểm thưởng (+)"], horizontal=True)
-            if picker_type == "Theo cột điểm TX":
-                target_tx = st.selectbox("Chọn cột TX cần kiểm tra:", tx_cols)
-                picker_mode = st.radio("Chế độ lọc:", ["Ưu tiên bạn chưa có điểm ở cột này", "Ngẫu nhiên toàn bộ lớp"])
-                if not merged_view.empty:
-                    pool = merged_view[merged_view[target_tx].astype(str).str.strip() == ""] if picker_mode == "Ưu tiên bạn chưa có điểm ở cột này" else merged_view
-                    if pool.empty: pool = merged_view
-                else: pool = pd.DataFrame()
-            else:
-                target_tx = "tx1"
-                st.info("💡 Hệ thống ưu tiên các bạn chưa có sao thưởng (0.00), sau đó đến nhóm điểm thưởng thấp nhất lớp.")
-                if not merged_view.empty:
-                    zero_star_pool = merged_view[merged_view["Diem_Cong"] == 0.0]
-                    pool = zero_star_pool if not zero_star_pool.empty else merged_view[merged_view["Diem_Cong"] == merged_view["Diem_Cong"].min()]
-                else: pool = pd.DataFrame()
-
-            btn_spin = st.button("🎲 QUAY GỌI TÊN", type="primary")
-
-        with col_p2:
-            if btn_spin and not pool.empty:
-                chosen_row = pool.sample(n=1).iloc[0]
-                placeholder = st.empty()
-                all_names = current_students["ho_va_ten"].tolist() if "ho_va_ten" in current_students.columns else ["Học sinh"]
-                for _ in range(10):
-                    temp_name = random.choice(all_names)
-                    placeholder.markdown(f"<h1 style='text-align: center; color: #3498db;'>🎲 {temp_name}</h1>", unsafe_allow_html=True)
-                    time.sleep(0.08)
-                ten_hs = chosen_row.get('ho_va_ten', 'Học sinh')
-                stt_hs = chosen_row.get('stt_display', '')
-                d_cong = chosen_row.get('Diem_Cong', 0.0)
-                placeholder.markdown(f"<h1 style='text-align: center; color: #2ecc71; border: 3px solid #2ecc71; padding: 15px; border-radius: 12px;'>🎉 {ten_hs} (STT: {stt_hs}) — ⭐ +{d_cong:.2f}</h1>", unsafe_allow_html=True)
-                st.session_state["chosen_student"] = chosen_row
-                
-            if "chosen_student" in st.session_state:
+if "chosen_student" in st.session_state:
                 s = st.session_state["chosen_student"]
                 ten_hien_thi = s.get('ho_va_ten', 'Học sinh')
-                stt_hien_thi = str(s.get('stt_display', ''))
+                stt_hien_thi = str(s.get('stt_display', '')).strip()
                 st.markdown(f"#### 📝 Đánh giá: **STT {stt_hien_thi} - {ten_hien_thi}**")
                 action = st.radio("Chọn thao tác:", ["Vào điểm trực tiếp cột TX", "Cộng điểm thưởng (+)", "Trừ điểm / Ghi nhận lỗi (-)"], horizontal=True)
                 
@@ -420,51 +381,65 @@ if tab_picker is not None:
                     c_score, c_save = st.columns([2, 1])
                     score_val = c_score.number_input(f"Nhập điểm {col_target_sel.upper()}:", min_value=0.0, max_value=10.0, value=8.0, step=0.25, format="%.2f")
                     if c_save.button("💾 Lưu điểm TX"):
-                        cell_list = ws_grades.findall(stt_hien_thi)
                         col_index = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(col_target_sel) + 4
-                        updated = False
-                        for cell in cell_list:
-                            row_vals = ws_grades.row_values(cell.row)
-                            if len(row_vals) >= 3 and str(row_vals[1]).strip().upper() == str(selected_lop).strip().upper():
-                                ws_grades.update_cell(cell.row, col_index, float(score_val))
-                                updated = True
-                                break
-                        if not updated:
-                            new_row = [stt_hien_thi, str(selected_lop), selected_mon] + [""] * 6
-                            new_row[col_index - 1] = float(score_val)
-                            ws_grades.append_row(new_row, value_input_option="USER_ENTERED")
-                        st.success("Đã lưu điểm thành công!")
-                        time.sleep(0.8)
-                        st.cache_data.clear()
-                        st.rerun()
+                        try:
+                            # Tra cứu nhanh vị trí dòng trong RAM, không gọi API tìm kiếm
+                            matched_row = None
+                            if not df_grades.empty and "stt" in df_grades.columns and "lop" in df_grades.columns:
+                                mask = (df_grades["stt"].astype(str).str.strip() == stt_hien_thi) & \
+                                       (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                if mask.any():
+                                    matched_row = mask.idxmax() + 2  # +2 vì tiêu đề dòng 1 và index bắt đầu từ 0
+                            
+                            if matched_row:
+                                ws_grades.update_cell(matched_row, col_index, float(score_val))
+                            else:
+                                new_row = [stt_hien_thi, str(selected_lop), selected_mon] + [""] * 6
+                                new_row[col_index - 1] = float(score_val)
+                                ws_grades.append_row(new_row, value_input_option="USER_ENTERED")
+                            
+                            st.success("Đã lưu điểm thành công!")
+                            time.sleep(0.5)
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as ex:
+                            time.sleep(1.5)
+                            st.warning("Hệ thống đang đồng bộ dữ liệu, vui lòng bấm lưu lại một lần nữa.")
 
                 elif action == "Cộng điểm thưởng (+)":
                     c_r, c_val, c_save = st.columns([2, 1, 1])
                     reason = c_r.selectbox("Lý do:", ["Hăng hái phát biểu", "Câu trả lời xuất sắc", "Bài tập làm tốt", "Khác"])
                     delta_val = c_val.select_slider("Số điểm:", options=[0.25, 0.5, 0.75, 1.0], value=0.5, format_func=lambda x: f"+{x:.2f}")
                     if c_save.button("⭐ Tặng sao"):
-                        ws_logs.append_row([
-                            f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
-                            str(date.today()), "PLUS", float(delta_val), reason, ""
-                        ], value_input_option="USER_ENTERED")
-                        st.success("Đã cộng điểm!")
-                        time.sleep(0.8)
-                        st.cache_data.clear()
-                        st.rerun()
+                        try:
+                            ws_logs.append_row([
+                                f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
+                                str(date.today()), "PLUS", float(delta_val), reason, ""
+                            ], value_input_option="USER_ENTERED")
+                            st.success(f"Đã cộng +{delta_val:.2f} điểm!")
+                            time.sleep(0.5)
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception:
+                            time.sleep(1.5)
+                            st.warning("Đang đồng bộ điểm với máy chủ...")
                 else:
                     c_err, c_val, c_save = st.columns([2, 1, 1])
                     err_type = c_err.selectbox("Lỗi:", ["Không thuộc bài", "Chưa nắm kiến thức", "Chưa làm bài tập", "Mất trật tự"])
                     minus_val = c_val.number_input("Điểm trừ:", min_value=-5.0, max_value=-0.25, value=-0.5, step=0.25, format="%.2f")
                     if c_save.button("⚠️ Ghi nhận lỗi"):
-                        ws_logs.append_row([
-                            f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
-                            str(date.today()), "MINUS", float(minus_val), err_type, ""
-                        ], value_input_option="USER_ENTERED")
-                        st.warning("Đã ghi nhận nhắc nhở!")
-                        time.sleep(0.8)
-                        st.cache_data.clear()
-                        st.rerun()
-
+                        try:
+                            ws_logs.append_row([
+                                f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
+                                str(date.today()), "MINUS", float(minus_val), err_type, ""
+                            ], value_input_option="USER_ENTERED")
+                            st.warning(f"Đã ghi nhận trừ {minus_val:.2f} điểm!")
+                            time.sleep(0.5)
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception:
+                            time.sleep(1.5)
+                            st.warning("Đang đồng bộ dữ liệu với máy chủ...")
 # TAB 3: BẢNG XẾP HẠNG
 with tab_leaderboard:
     st.markdown("### 🏆 Bảng Vàng Tích Cực")

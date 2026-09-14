@@ -68,8 +68,6 @@ except Exception as e:
     st.stop()
 
 # ==================== PHẦN XỬ LÝ XÁC THỰC BẢO MẬT TRÊN ĐIỆN THOẠI ====================
-# Lấy chìa khóa độc quyền từ Streamlit Secrets trên đám mây
-# Rút chìa khóa bảo mật trực tiếp từ Streamlit Secrets
 if "MASTER_KEY" in st.secrets:
     MASTER_KEY = str(st.secrets["MASTER_KEY"]).strip()
 elif "gcp_service_account" in st.secrets and "MASTER_KEY" in st.secrets["gcp_service_account"]:
@@ -77,6 +75,7 @@ elif "gcp_service_account" in st.secrets and "MASTER_KEY" in st.secrets["gcp_ser
 else:
     st.error("⚠️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
     st.stop()
+
 query_params = st.query_params
 
 if "auth_token" in query_params:
@@ -84,7 +83,6 @@ if "auth_token" in query_params:
     st.markdown('<div class="teacher-banner">📱 XÁC THỰC QUYỀN GIÁO VIÊN</div>', unsafe_allow_html=True)
     st.write("")
     
-    # Kiểm tra quyền: Nếu có kèm chìa khóa bí mật của thầy
     has_key = query_params.get("key") == MASTER_KEY
     
     if has_key:
@@ -104,7 +102,6 @@ if "auth_token" in query_params:
             except Exception as err:
                 st.error(f"Lỗi: {err}")
     else:
-        # Nếu học sinh quét mã hoặc chưa gắn chìa khóa bí mật
         st.warning(f"Đang yêu cầu mở khóa phiên: **{token}**")
         input_pass = st.text_input("Nhập mã bảo mật giáo viên:", type="password", key="sec_key_input")
         if st.button("✅ Xác thực & Phê duyệt", type="primary"):
@@ -125,7 +122,7 @@ if "auth_token" in query_params:
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=300)
 def load_base_data():
@@ -266,7 +263,6 @@ if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.colum
     if "delta" in current_logs.columns:
         current_logs["delta"] = current_logs["delta"].astype(str).str.replace(",", ".", regex=False)
         current_logs["delta"] = pd.to_numeric(current_logs["delta"], errors="coerce").fillna(0.0)
-        # Chốt chặn an toàn: Tự đưa các giá trị ghi nhầm do lỗi hàng nghìn về thập phân
         current_logs["delta"] = current_logs["delta"].apply(lambda x: x / 100.0 if abs(x) >= 20.0 else x)
 else:
     current_logs = pd.DataFrame()
@@ -369,7 +365,46 @@ with tab_tv:
         display_df.rename(columns=rename_dict, inplace=True)
         st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
 
-if "chosen_student" in st.session_state:
+# TAB 2: QUAY TÊN NGẪU NHIÊN (ĐÃ KHÔI PHỤC ĐẦY ĐỦ VÒNG QUAY VÀ ĐÁNH GIÁ NHANH)
+if tab_picker is not None:
+    with tab_picker:
+        st.markdown("### 🎯 Vòng quay gọi bài công bằng")
+        col_p1, col_p2 = st.columns([1, 2])
+        with col_p1:
+            picker_type = st.radio("Mục tiêu gọi tên:", ["Theo cột điểm TX", "⭐ Theo điểm thưởng (+)"], horizontal=True)
+            if picker_type == "Theo cột điểm TX":
+                target_tx = st.selectbox("Chọn cột TX cần kiểm tra:", tx_cols)
+                picker_mode = st.radio("Chế độ lọc:", ["Ưu tiên bạn chưa có điểm ở cột này", "Ngẫu nhiên toàn bộ lớp"])
+                if not merged_view.empty:
+                    pool = merged_view[merged_view[target_tx].astype(str).str.strip() == ""] if picker_mode == "Ưu tiên bạn chưa có điểm ở cột này" else merged_view
+                    if pool.empty: pool = merged_view
+                else: pool = pd.DataFrame()
+            else:
+                target_tx = "tx1"
+                st.info("💡 Hệ thống ưu tiên các bạn chưa có sao thưởng (0.00), sau đó đến nhóm điểm thưởng thấp nhất lớp.")
+                if not merged_view.empty:
+                    zero_star_pool = merged_view[merged_view["Diem_Cong"] == 0.0]
+                    pool = zero_star_pool if not zero_star_pool.empty else merged_view[merged_view["Diem_Cong"] == merged_view["Diem_Cong"].min()]
+                else: pool = pd.DataFrame()
+
+            btn_spin = st.button("🎲 QUAY GỌI TÊN", type="primary")
+
+        with col_p2:
+            if btn_spin and not pool.empty:
+                chosen_row = pool.sample(n=1).iloc[0]
+                placeholder = st.empty()
+                all_names = current_students["ho_va_ten"].tolist() if "ho_va_ten" in current_students.columns else ["Học sinh"]
+                for _ in range(10):
+                    temp_name = random.choice(all_names)
+                    placeholder.markdown(f"<h1 style='text-align: center; color: #3498db;'>🎲 {temp_name}</h1>", unsafe_allow_html=True)
+                    time.sleep(0.08)
+                ten_hs = chosen_row.get('ho_va_ten', 'Học sinh')
+                stt_hs = chosen_row.get('stt_display', '')
+                d_cong = chosen_row.get('Diem_Cong', 0.0)
+                placeholder.markdown(f"<h1 style='text-align: center; color: #2ecc71; border: 3px solid #2ecc71; padding: 15px; border-radius: 12px;'>🎉 {ten_hs} (STT: {stt_hs}) — ⭐ +{d_cong:.2f}</h1>", unsafe_allow_html=True)
+                st.session_state["chosen_student"] = chosen_row
+                
+            if "chosen_student" in st.session_state:
                 s = st.session_state["chosen_student"]
                 ten_hien_thi = s.get('ho_va_ten', 'Học sinh')
                 stt_hien_thi = str(s.get('stt_display', '')).strip()
@@ -383,13 +418,12 @@ if "chosen_student" in st.session_state:
                     if c_save.button("💾 Lưu điểm TX"):
                         col_index = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(col_target_sel) + 4
                         try:
-                            # Tra cứu nhanh vị trí dòng trong RAM, không gọi API tìm kiếm
                             matched_row = None
                             if not df_grades.empty and "stt" in df_grades.columns and "lop" in df_grades.columns:
                                 mask = (df_grades["stt"].astype(str).str.strip() == stt_hien_thi) & \
                                        (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
                                 if mask.any():
-                                    matched_row = mask.idxmax() + 2  # +2 vì tiêu đề dòng 1 và index bắt đầu từ 0
+                                    matched_row = mask.idxmax() + 2
                             
                             if matched_row:
                                 ws_grades.update_cell(matched_row, col_index, float(score_val))
@@ -402,9 +436,9 @@ if "chosen_student" in st.session_state:
                             time.sleep(0.5)
                             st.cache_data.clear()
                             st.rerun()
-                        except Exception as ex:
+                        except Exception:
                             time.sleep(1.5)
-                            st.warning("Hệ thống đang đồng bộ dữ liệu, vui lòng bấm lưu lại một lần nữa.")
+                            st.warning("Hệ thống đang đồng bộ dữ liệu, vui lòng bấm lưu lại.")
 
                 elif action == "Cộng điểm thưởng (+)":
                     c_r, c_val, c_save = st.columns([2, 1, 1])
@@ -440,6 +474,7 @@ if "chosen_student" in st.session_state:
                         except Exception:
                             time.sleep(1.5)
                             st.warning("Đang đồng bộ dữ liệu với máy chủ...")
+
 # TAB 3: BẢNG XẾP HẠNG
 with tab_leaderboard:
     st.markdown("### 🏆 Bảng Vàng Tích Cực")

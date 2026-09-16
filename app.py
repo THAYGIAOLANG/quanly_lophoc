@@ -475,9 +475,9 @@ if tab_picker is not None:
                             time.sleep(1.5)
                             st.warning("Đang đồng bộ dữ liệu với máy chủ...")
 
-# TAB 3: BẢNG XẾP HẠNG TÍCH CỰC (TOP 10 ĐIỂM THỰC)
+# TAB 3: TOP 10 TÍCH CỰC
 with tab_leaderboard:
-    st.markdown("### 🏆 Bảng Vàng Tích Cực (TOP 10 Điểm Thực)")
+    st.markdown("### 🏆 Top 10 Tích Cực")
     
     if not merged_view.empty:
         # 1. Tính điểm thực

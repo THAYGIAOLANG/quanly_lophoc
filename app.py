@@ -475,16 +475,44 @@ if tab_picker is not None:
                             time.sleep(1.5)
                             st.warning("Đang đồng bộ dữ liệu với máy chủ...")
 
-# TAB 3: BẢNG XẾP HẠNG
+# TAB 3: BẢNG XẾP HẠNG TÍCH CỰC (TOP 10 ĐIỂM THỰC)
 with tab_leaderboard:
-    st.markdown("### 🏆 Bảng Vàng Tích Cực")
+    st.markdown("### 🏆 Bảng Vàng Tích Cực (TOP 10 Điểm Thực)")
+    
     if not merged_view.empty:
-        top_stars = merged_view[merged_view["Diem_Cong"] > 0].sort_values(by="Diem_Cong", ascending=False)
-        if not top_stars.empty:
-            for idx, row in top_stars.head(5).iterrows():
-                st.markdown(f"#### 🥇 **{row.get('ho_va_ten', '')}** (STT {row.get('stt_display', '')}) — ⭐ **+{row['Diem_Cong']:.2f} Điểm**")
+        # 1. Tính điểm thực
+        merged_view["Diem_Thuc"] = (merged_view["Diem_Cong"] + merged_view["Diem_Tru"]).round(2)
+        
+        # 2. Xác định lượt cộng điểm gần nhất của từng học sinh (để xét ưu tiên khi bằng điểm)
+        last_plus_index = {}
+        if not current_logs.empty and "type" in current_logs.columns and "stt" in current_logs.columns:
+            plus_only = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
+            for idx, r in plus_only.iterrows():
+                last_plus_index[str(r["stt"]).strip()] = idx
+        
+        merged_view["Last_Plus_Order"] = merged_view["stt_display"].astype(str).map(last_plus_index).fillna(-1)
+        
+        # 3. Lọc các bạn có điểm thực dương và sắp xếp: Điểm thực giảm dần -> Thứ tự mới nhất giảm dần
+        top_active = merged_view[merged_view["Diem_Thuc"] > 0].sort_values(
+            by=["Diem_Thuc", "Last_Plus_Order"], 
+            ascending=[False, False]
+        ).head(10)
+        
+        if not top_active.empty:
+            medals = ["🥇", "🥈", "🥉"] + [f"**#{i}**" for i in range(4, 11)]
+            for i, (_, row) in enumerate(top_active.iterrows()):
+                rank_icon = medals[i]
+                ten_hs = row.get('ho_va_ten', '')
+                stt_hs = row.get('stt_display', '')
+                d_thuc = row['Diem_Thuc']
+                d_cong = row['Diem_Cong']
+                d_tru = row['Diem_Tru']
+                st.markdown(
+                    f"{rank_icon} **{ten_hs}** (STT {stt_hs}) — 🌟 **{d_thuc:+.2f} Điểm thực** "
+                    f"*(Thưởng: +{d_cong:.2f} | Phạt: {d_tru:.2f})*"
+                )
         else:
-            st.info("Chưa có điểm cộng tích cực nào được ghi nhận.")
+            st.info("Chưa có học sinh nào đạt điểm thực dương (+).")
 
 # TAB 4: XUẤT VNEDU
 if tab_export is not None:

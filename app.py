@@ -122,7 +122,7 @@ if "auth_token" in query_params:
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU | NĂM HỌC 2026/27✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU ✨</div>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=300)
 def load_base_data():
@@ -298,8 +298,9 @@ else:
 st.markdown(f"# 📺 LỚP: {selected_lop} — MÔN: {selected_mon}")
 
 if st.session_state["authenticated"]:
-    tab_tv, tab_picker, tab_leaderboard, tab_export = st.tabs([
+    tab_tv, tab_bulk_tx, tab_picker, tab_leaderboard, tab_export = st.tabs([
         "📋 Bảng Tổng Hợp Chiếu TV", 
+        "📝 Nhập Điểm Nhanh (TX)",
         "🎯 Gọi Tên Ngẫu Nhiên", 
         "🏆 Bảng Xếp Hạng Tích Cực",
         "📥 Xuất Điểm vnEdu"
@@ -309,6 +310,7 @@ else:
         "📋 Bảng Tổng Hợp Chiếu TV", 
         "🏆 Bảng Xếp Hạng Tích Cực"
     ])
+    tab_bulk_tx = None
     tab_picker = None
     tab_export = None
 
@@ -365,7 +367,91 @@ with tab_tv:
         display_df.rename(columns=rename_dict, inplace=True)
         st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
 
-# TAB 2: QUAY TÊN NGẪU NHIÊN (ĐÃ KHÔI PHỤC ĐẦY ĐỦ VÒNG QUAY VÀ ĐÁNH GIÁ NHANH)
+# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (DÀNH CHO PHÁT BÀI KIỂM TRA ĐỌC ĐIỂM)
+if st.session_state["authenticated"] and tab_bulk_tx is not None:
+    with tab_bulk_tx:
+        st.markdown(f"### 📝 Nhập điểm TX hàng loạt — Lớp {selected_lop} ({selected_mon})")
+        
+        c_sel_col, c_help = st.columns([1, 2])
+        with c_sel_col:
+            selected_tx_col = st.selectbox("📌 Chọn cột TX cần vào điểm:", tx_cols, key="bulk_tx_target")
+        with c_help:
+            st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm -> bấm **Enter** hoặc phím **↓** để tự động chuyển sang bạn kế tiếp.")
+
+        if not merged_view.empty:
+            edit_df = merged_view[["stt_display", "ho_va_ten", selected_tx_col]].copy()
+            edit_df[selected_tx_col] = pd.to_numeric(edit_df[selected_tx_col], errors="coerce")
+
+            edited_data = st.data_editor(
+                edit_df,
+                column_config={
+                    "stt_display": st.column_config.TextColumn("STT", disabled=True, width="small"),
+                    "ho_va_ten": st.column_config.TextColumn("Họ và Tên", disabled=True, width="medium"),
+                    selected_tx_col: st.column_config.NumberColumn(
+                        f"Điểm {selected_tx_col.upper()}",
+                        help="Nhập từ 0 đến 10",
+                        min_value=0.0,
+                        max_value=10.0,
+                        step=0.25,
+                        format="%.2f"
+                    )
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                key="editor_bulk_tx"
+            )
+
+            if st.button(f"💾 LƯU TOÀN BỘ ĐIỂM {selected_tx_col.upper()} LÊN HỆ THỐNG", type="primary", use_container_width=True):
+                with st.spinner("Đang cập nhật bảng điểm lên Google Sheets..."):
+                    try:
+                        col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(selected_tx_col) + 4
+                        all_grades_records = ws_grades.get_all_records()
+                        df_all_g = pd.DataFrame(all_grades_records)
+                        
+                        if not df_all_g.empty:
+                            df_all_g.columns = [str(c).lower().strip() for c in df_all_g.columns]
+                        
+                        updates_to_make = []
+                        rows_to_append = []
+
+                        for _, r in edited_data.iterrows():
+                            val = r[selected_tx_col]
+                            if pd.isna(val) or str(val).strip() == "":
+                                continue
+                            
+                            stt_val = str(r["stt_display"]).strip()
+                            score_val = float(val)
+
+                            found_idx = None
+                            if not df_all_g.empty and "stt" in df_all_g.columns and "lop" in df_all_g.columns:
+                                mask = (df_all_g["stt"].astype(str).str.strip() == stt_val) & \
+                                       (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                if mask.any():
+                                    found_idx = mask.idxmax() + 2
+
+                            if found_idx:
+                                updates_to_make.append((found_idx, col_idx, score_val))
+                            else:
+                                new_r = [stt_val, str(selected_lop), selected_mon] + [""] * 6
+                                new_r[col_idx - 1] = score_val
+                                rows_to_append.append(new_r)
+
+                        for r_idx, c_idx, val_s in updates_to_make:
+                            ws_grades.update_cell(r_idx, c_idx, val_s)
+                        
+                        if rows_to_append:
+                            ws_grades.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+
+                        st.success(f"🎉 Đã lưu thành công điểm {selected_tx_col.upper()} cho lớp {selected_lop}!")
+                        time.sleep(1.0)
+                        st.cache_data.clear()
+                        st.rerun()
+
+                    except Exception as err:
+                        st.error(f"Lỗi khi lưu bảng điểm: {err}")
+
+# TAB 2: QUAY TÊN NGẪU NHIÊN
 if tab_picker is not None:
     with tab_picker:
         st.markdown("### 🎯 Vòng quay gọi bài công bằng")
@@ -475,15 +561,13 @@ if tab_picker is not None:
                             time.sleep(1.5)
                             st.warning("Đang đồng bộ dữ liệu với máy chủ...")
 
-# TAB 3: TOP 10 TÍCH CỰC
+# TAB 3: BẢNG XẾP HẠNG TÍCH CỰC (TOP 10 ĐIỂM THỰC)
 with tab_leaderboard:
-    st.markdown("### 🏆 Top 10 Tích Cực")
+    st.markdown("### 🏆 Bảng Vàng Tích Cực (TOP 10 Điểm Thực)")
     
     if not merged_view.empty:
-        # 1. Tính điểm thực
         merged_view["Diem_Thuc"] = (merged_view["Diem_Cong"] + merged_view["Diem_Tru"]).round(2)
         
-        # 2. Xác định lượt cộng điểm gần nhất của từng học sinh (để xét ưu tiên khi bằng điểm)
         last_plus_index = {}
         if not current_logs.empty and "type" in current_logs.columns and "stt" in current_logs.columns:
             plus_only = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
@@ -492,7 +576,6 @@ with tab_leaderboard:
         
         merged_view["Last_Plus_Order"] = merged_view["stt_display"].astype(str).map(last_plus_index).fillna(-1)
         
-        # 3. Lọc các bạn có điểm thực dương và sắp xếp: Điểm thực giảm dần -> Thứ tự mới nhất giảm dần
         top_active = merged_view[merged_view["Diem_Thuc"] > 0].sort_values(
             by=["Diem_Thuc", "Last_Plus_Order"], 
             ascending=[False, False]

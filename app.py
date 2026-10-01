@@ -27,7 +27,19 @@ if not st.session_state["authenticated"]:
 
 st.markdown(f"""
     <style>
-        header[data-testid="stHeader"] {{ display: none !important; }}
+        /* Ẩn nền và menu của header nhưng GIỮ LẠI nút mở sidebar */
+        header[data-testid="stHeader"] {
+            background-color: transparent !important;
+        }
+        /* Ẩn các nút Deploy, 3 chấm menu góc trên bên phải */
+        header[data-testid="stHeader"] [data-testid="stToolbar"] {
+            display: none !important;
+        }
+        /* Luôn làm nổi bật nút mũi tên mở sidebar ở góc trên bên trái */
+        [data-testid="stSidebarCollapsedControl"] {
+            display: block !important;
+            color: #ff512f !important;
+        }
         .block-container {{
             padding-top: 1.5rem !important;
             padding-bottom: 1rem !important;

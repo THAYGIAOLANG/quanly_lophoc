@@ -389,7 +389,29 @@ with tab_tv:
         for c in tx_cols:
             rename_dict[c] = c.upper()
         display_df.rename(columns=rename_dict, inplace=True)
-        st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
+
+        # Hàm chuẩn hóa hiển thị: đúng 2 chữ số thập phân, ô trống hiển thị sạch sẽ
+        def format_tx_score(val):
+            if pd.isna(val) or str(val).strip() == "" or str(val).strip().lower() == "none":
+                return ""
+            try:
+                return f"{float(val):.2f}"
+            except Exception:
+                return str(val)
+
+        format_mapping = {
+            "⭐ Điểm (+)": "{:.2f}",
+            "⚠️ Nhắc nhở (-)": "{:.2f}"
+        }
+        for c in tx_cols:
+            format_mapping[c.upper()] = format_tx_score
+
+        st.dataframe(
+            display_df.style.format(format_mapping), 
+            use_container_width=True, 
+            hide_index=True, 
+            height=450
+        )
 
 # TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (KHÓA CHÍNH: HỌ VÀ TÊN)
 if st.session_state["authenticated"] and tab_bulk_tx is not None:

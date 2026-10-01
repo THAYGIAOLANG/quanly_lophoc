@@ -12,16 +12,29 @@ from google.oauth2.service_account import Credentials
 # 1. Cấu hình giao diện Streamlit
 st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU", layout="wide", initial_sidebar_state="expanded")
 
-st.markdown("""
+# Khởi tạo trạng thái đăng nhập
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# CSS giao diện & Ẩn thanh tải file (Download CSV) đối với khách
+hide_toolbar_css = ""
+if not st.session_state["authenticated"]:
+    hide_toolbar_css = """
+        [data-testid="stElementToolbar"] {
+            display: none !important;
+        }
+    """
+
+st.markdown(f"""
     <style>
-        header[data-testid="stHeader"] { display: none !important; }
-        .block-container {
+        header[data-testid="stHeader"] {{ display: none !important; }}
+        .block-container {{
             padding-top: 1.5rem !important;
             padding-bottom: 1rem !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
-        }
-        .teacher-banner {
+        }}
+        .teacher-banner {{
             background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
             color: #ffffff;
             padding: 12px 20px;
@@ -32,9 +45,10 @@ st.markdown("""
             text-align: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             margin-bottom: 15px;
-        }
-        .big-font { font-size: 22px !important; font-weight: bold; }
-        .stButton>button { width: 100%; height: 45px; font-size: 16px !important; font-weight: bold; }
+        }}
+        .big-font {{ font-size: 22px !important; font-weight: bold; }}
+        .stButton>button {{ width: 100%; height: 45px; font-size: 16px !important; font-weight: bold; }}
+        {hide_toolbar_css}
     </style>
 """, unsafe_allow_html=True)
 
@@ -192,9 +206,6 @@ if st.sidebar.button("🔄 Tải lại dữ liệu"):
 st.sidebar.markdown("---")
 
 # ==================== ĐƯA XUỐNG DƯỚI: KHỐI ĐĂNG NHẬP / XÁC THỰC ====================
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-
 if "qr_session_id" not in st.session_state:
     st.session_state["qr_session_id"] = f"SES_{random.randint(1000, 9999)}_{int(time.time())}"
 
@@ -398,7 +409,7 @@ with tab_tv:
 
         format_mapping = {
             "⭐ Điểm (+)": "{:.2f}",
-            "⚠️ Nhắc nhở (-)": "{:.2f}"
+            "⚠️️ Nhắc nhở (-)": "{:.2f}"
         }
         for c in tx_cols:
             format_mapping[c.upper()] = format_tx_score
@@ -436,7 +447,7 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
             with c_sel_col:
                 selected_tx_col = st.selectbox("📌 Chọn cột TX cần vào điểm:", tx_cols, key="bulk_tx_target")
             with c_help:
-                st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm $\\rightarrow$ bấm **Enter** hoặc phím **$\\downarrow$** để tự động chuyển sang bạn kế tiếp.")
+                st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm $\rightarrow$ bấm **Enter** hoặc phím **$\downarrow$** để tự động chuyển sang bạn kế tiếp.")
 
             if not merged_view.empty:
                 edit_df = merged_view[["stt_display", "ho_va_ten", selected_tx_col]].copy()

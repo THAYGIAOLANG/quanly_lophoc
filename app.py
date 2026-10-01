@@ -73,7 +73,7 @@ if "MASTER_KEY" in st.secrets:
 elif "gcp_service_account" in st.secrets and "MASTER_KEY" in st.secrets["gcp_service_account"]:
     MASTER_KEY = str(st.secrets["gcp_service_account"]["MASTER_KEY"]).strip()
 else:
-    st.error("⚠️️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
+    st.error("⚠️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
     st.stop()
 
 query_params = st.query_params
@@ -409,7 +409,7 @@ with tab_tv:
             height=450
         )
 
-# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (KHÓA CHỐNG BẤM TRÙNG & CHUYỂN GIAO DIỆN BÁO THÀNH CÔNG)
+# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (CƠ CHẾ LƯU DELTA THÔNG MINH & CHỐNG SPAM CLICK)
 if st.session_state["authenticated"] and tab_bulk_tx is not None:
     with tab_bulk_tx:
         if "bulk_save_done" not in st.session_state:
@@ -418,7 +418,7 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
         if st.session_state["bulk_save_done"]:
             st.success("🎉 **ĐÃ ĐỒNG BỘ THÀNH CÔNG BẢNG ĐIỂM LÊN GOOGLE SHEETS!**")
             st.balloons()
-            st.info("Toàn bộ điểm số đã được lưu an toàn vào cơ sở dữ liệu hệ thống.")
+            st.info("Hệ thống chỉ lưu các thay đổi mới và bảo toàn tuyệt đối dữ liệu đã có.")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("📋 Xem bảng tổng hợp chiếu TV", type="primary", use_container_width=True):
@@ -479,8 +479,19 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
                             updates_to_make = []
                             rows_to_append = []
 
-                            for _, r in edited_data.iterrows():
+                            # SO SÁNH SAI KHÁC: CHỈ GỬI LỆNH LƯU CHO NHỮNG HỌC SINH CÓ THAY ĐỔI
+                            for idx, r in edited_data.iterrows():
                                 val = r[selected_tx_col]
+                                old_val = edit_df.loc[idx, selected_tx_col]
+
+                                # Cả hai ô đều trống -> Bỏ qua
+                                if (pd.isna(val) or str(val).strip() == "") and (pd.isna(old_val) or str(old_val).strip() == ""):
+                                    continue
+                                
+                                # Điểm không thay đổi -> Bỏ qua hoàn toàn, không tốn lượt API
+                                if pd.notna(val) and pd.notna(old_val) and float(val) == float(old_val):
+                                    continue
+
                                 if pd.isna(val) or str(val).strip() == "":
                                     continue
                                 
@@ -512,6 +523,7 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
                                         new_r[col_idx - 1] = score_val
                                     rows_to_append.append(new_r)
 
+                            # Chỉ cập nhật các dòng thực sự có sửa đổi
                             for r_idx, c_idx, val_s in updates_to_make:
                                 ws_grades.update_cell(r_idx, c_idx, val_s)
                             

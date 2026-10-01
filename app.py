@@ -38,7 +38,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Kết nối Google Sheets linh hoạt (Tối ưu hóa tránh nghẽn API)
+# 2. Kết nối Google Sheets linh hoạt
 current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_KEY_FILE = os.path.join(current_dir, "service_account.json")
 SHEET_TITLE = "Database_So_Theo_Doi_Hoc_Tap"
@@ -122,7 +122,7 @@ if "auth_token" in query_params:
     st.stop()
 
 # ==================== GIAO DIỆN CHÍNH (MÁY TÍNH LỚP HỌC) ====================
-st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU 26/27✨</div>', unsafe_allow_html=True)
+st.markdown('<div class="teacher-banner">✨ LỚP HỌC THẦY HOÀNG HIỀN HẬU 2026/27✨</div>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=300)
 def load_base_data():
@@ -151,6 +151,7 @@ def load_class_students(class_name):
         if not df.empty:
             df.columns = [str(c).lower().strip() for c in df.columns]
             df["stt_display"] = df["stt"].astype(str).str.strip()
+            df["ho_va_ten"] = df["ho_va_ten"].astype(str).str.strip()
             df["lop"] = str(class_name).strip()
             return df
         return pd.DataFrame()
@@ -248,6 +249,8 @@ if not df_grades.empty and "lop" in df_grades.columns and "mon_hoc" in df_grades
         (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper()) & 
         (df_grades["mon_hoc"].astype(str).str.lower().str.contains(mon_keyword))
     ].copy()
+    if "ho_va_ten" in current_grades.columns:
+        current_grades["ho_va_ten"] = current_grades["ho_va_ten"].astype(str).str.strip()
     if "stt" in current_grades.columns:
         current_grades["stt"] = current_grades["stt"].astype(str).str.strip()
 else:
@@ -258,6 +261,8 @@ if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.colum
         (df_logs["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper()) & 
         (df_logs["mon_hoc"].astype(str).str.lower().str.contains(mon_keyword))
     ].copy()
+    if "ho_va_ten" in current_logs.columns:
+        current_logs["ho_va_ten"] = current_logs["ho_va_ten"].astype(str).str.strip()
     if "stt" in current_logs.columns:
         current_logs["stt"] = current_logs["stt"].astype(str).str.strip()
     if "delta" in current_logs.columns:
@@ -267,9 +272,17 @@ if not df_logs.empty and "lop" in df_logs.columns and "mon_hoc" in df_logs.colum
 else:
     current_logs = pd.DataFrame()
 
+# Ghép dữ liệu chuẩn xác ưu tiên theo HỌ VÀ TÊN + LỚP
 if not current_students.empty:
-    if not current_grades.empty and "stt" in current_grades.columns:
-        merged_view = current_students.merge(current_grades, left_on=["stt_display", "lop"], right_on=["stt", "lop"], how="left")
+    if not current_grades.empty:
+        # Nếu bảng điểm đã có cột ho_va_ten -> ghép theo Tên + Lớp
+        if "ho_va_ten" in current_grades.columns and current_grades["ho_va_ten"].str.len().sum() > 0:
+            cols_to_drop = [c for c in ["stt", "lop", "mon_hoc"] if c in current_grades.columns]
+            grades_subset = current_grades.drop(columns=cols_to_drop, errors="ignore")
+            merged_view = current_students.merge(grades_subset, on="ho_va_ten", how="left")
+        else:
+            # Tương thích ngược nếu sheet chưa cập nhật cột tên: ghép theo stt + lop
+            merged_view = current_students.merge(current_grades, left_on=["stt_display", "lop"], right_on=["stt", "lop"], how="left")
     else:
         merged_view = current_students.copy()
 else:
@@ -279,17 +292,27 @@ for c in tx_cols:
     if c not in merged_view.columns:
         merged_view[c] = ""
 
-if not current_logs.empty and "type" in current_logs.columns and "stt" in current_logs.columns:
+# Tính điểm thưởng (+) và trừ (-) cho từng học sinh
+if not current_logs.empty and "type" in current_logs.columns:
     plus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
     minus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "MINUS"]
-    plus_map = plus_df.groupby("stt")["delta"].sum().to_dict()
-    minus_map = minus_df.groupby("stt")["delta"].sum().to_dict()
+    
+    # Ưu tiên map theo HỌ VÀ TÊN nếu có, ngược lại map theo STT
+    if "ho_va_ten" in current_logs.columns and current_logs["ho_va_ten"].str.len().sum() > 0:
+        plus_map = plus_df.groupby("ho_va_ten")["delta"].sum().to_dict()
+        minus_map = minus_df.groupby("ho_va_ten")["delta"].sum().to_dict()
+        map_key = "ho_va_ten"
+    else:
+        plus_map = plus_df.groupby("stt")["delta"].sum().to_dict()
+        minus_map = minus_df.groupby("stt")["delta"].sum().to_dict()
+        map_key = "stt_display"
 else:
     plus_map, minus_map = {}, {}
+    map_key = "ho_va_ten"
 
-if not merged_view.empty and "stt_display" in merged_view.columns:
-    merged_view["Diem_Cong"] = merged_view["stt_display"].astype(str).map(plus_map).fillna(0.0).round(2)
-    merged_view["Diem_Tru"] = merged_view["stt_display"].astype(str).map(minus_map).fillna(0.0).round(2)
+if not merged_view.empty and map_key in merged_view.columns:
+    merged_view["Diem_Cong"] = merged_view[map_key].astype(str).str.strip().map(plus_map).fillna(0.0).round(2)
+    merged_view["Diem_Tru"] = merged_view[map_key].astype(str).str.strip().map(minus_map).fillna(0.0).round(2)
 else:
     merged_view["Diem_Cong"] = 0.0
     merged_view["Diem_Tru"] = 0.0
@@ -326,6 +349,7 @@ with tab_tv:
             selected_student_str = st.selectbox("Chọn học sinh:", student_options, key=f"quick_student_{selected_lop}")
         
         target_stt = selected_student_str.split(" - ")[0].strip()
+        target_name = selected_student_str.split(" - ")[1].strip()
         
         if "Cộng điểm" in action_type:
             with col_val:
@@ -335,9 +359,9 @@ with tab_tv:
                 if st.button("⭐ Cộng điểm ngay", type="primary", key="btn_quick_add"):
                     ws_logs.append_row([
                         f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
-                        str(date.today()), "PLUS", float(delta_score), "Xung phong phát biểu", ""
+                        str(date.today()), "PLUS", float(delta_score), "Xung phong phát biểu", target_name
                     ], value_input_option="USER_ENTERED")
-                    st.success(f"Đã cộng +{delta_score:.2f}!")
+                    st.success(f"Đã cộng +{delta_score:.2f} cho {target_name}!")
                     time.sleep(0.8)
                     st.cache_data.clear()
                     st.rerun()
@@ -349,7 +373,7 @@ with tab_tv:
                 if st.button("⚠️ Ghi nhận lỗi", type="secondary", key="btn_quick_sub"):
                     ws_logs.append_row([
                         f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
-                        str(date.today()), "MINUS", float(minus_score), "Nhắc nhở nề nếp / học tập", ""
+                        str(date.today()), "MINUS", float(minus_score), "Nhắc nhở nề nếp / học tập", target_name
                     ], value_input_option="USER_ENTERED")
                     st.warning(f"Đã trừ {minus_score:.2f} điểm!")
                     time.sleep(0.8)
@@ -367,7 +391,7 @@ with tab_tv:
         display_df.rename(columns=rename_dict, inplace=True)
         st.dataframe(display_df.style.format({"⭐ Điểm (+)": "{:.2f}", "⚠️ Nhắc nhở (-)": "{:.2f}"}), use_container_width=True, hide_index=True, height=450)
 
-# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (DÀNH CHO PHÁT BÀI KIỂM TRA ĐỌC ĐIỂM)
+# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (KHÓA CHÍNH: HỌ VÀ TÊN)
 if st.session_state["authenticated"] and tab_bulk_tx is not None:
     with tab_bulk_tx:
         st.markdown(f"### 📝 Nhập điểm TX hàng loạt — Lớp {selected_lop} ({selected_mon})")
@@ -376,7 +400,7 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
         with c_sel_col:
             selected_tx_col = st.selectbox("📌 Chọn cột TX cần vào điểm:", tx_cols, key="bulk_tx_target")
         with c_help:
-            st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm -> bấm **Enter** hoặc phím **↓** để tự động chuyển sang bạn kế tiếp.")
+            st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm $\\rightarrow$ bấm **Enter** hoặc phím **$\\downarrow$** để tự động chuyển sang bạn kế tiếp.")
 
         if not merged_view.empty:
             edit_df = merged_view[["stt_display", "ho_va_ten", selected_tx_col]].copy()
@@ -405,12 +429,17 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
             if st.button(f"💾 LƯU TOÀN BỘ ĐIỂM {selected_tx_col.upper()} LÊN HỆ THỐNG", type="primary", use_container_width=True):
                 with st.spinner("Đang cập nhật bảng điểm lên Google Sheets..."):
                     try:
-                        col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(selected_tx_col) + 4
                         all_grades_records = ws_grades.get_all_records()
                         df_all_g = pd.DataFrame(all_grades_records)
                         
+                        has_name_col = False
                         if not df_all_g.empty:
                             df_all_g.columns = [str(c).lower().strip() for c in df_all_g.columns]
+                            has_name_col = "ho_va_ten" in df_all_g.columns
+
+                        # Xác định vị trí cột TX (nếu có cột họ tên thì +5, nếu chưa có thì +4)
+                        tx_base_offset = 5 if has_name_col else 4
+                        col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(selected_tx_col) + tx_base_offset
                         
                         updates_to_make = []
                         rows_to_append = []
@@ -421,20 +450,33 @@ if st.session_state["authenticated"] and tab_bulk_tx is not None:
                                 continue
                             
                             stt_val = str(r["stt_display"]).strip()
+                            name_val = str(r["ho_va_ten"]).strip()
                             score_val = float(val)
 
+                            # Khớp dòng ưu tiên theo HỌ VÀ TÊN + LỚP
                             found_idx = None
-                            if not df_all_g.empty and "stt" in df_all_g.columns and "lop" in df_all_g.columns:
-                                mask = (df_all_g["stt"].astype(str).str.strip() == stt_val) & \
-                                       (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                            if not df_all_g.empty and "lop" in df_all_g.columns:
+                                if has_name_col:
+                                    mask = (df_all_g["ho_va_ten"].astype(str).str.strip().str.lower() == name_val.lower()) & \
+                                           (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                else:
+                                    mask = (df_all_g["stt"].astype(str).str.strip() == stt_val) & \
+                                           (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                
                                 if mask.any():
                                     found_idx = mask.idxmax() + 2
 
                             if found_idx:
                                 updates_to_make.append((found_idx, col_idx, score_val))
+                                # Cập nhật lại STT hiện tại để luôn chuẩn xác
+                                updates_to_make.append((found_idx, 1, stt_val))
                             else:
-                                new_r = [stt_val, str(selected_lop), selected_mon] + [""] * 6
-                                new_r[col_idx - 1] = score_val
+                                if has_name_col:
+                                    new_r = [stt_val, name_val, str(selected_lop), selected_mon] + [""] * 6
+                                    new_r[col_idx - 1] = score_val
+                                else:
+                                    new_r = [stt_val, str(selected_lop), selected_mon] + [""] * 6
+                                    new_r[col_idx - 1] = score_val
                                 rows_to_append.append(new_r)
 
                         for r_idx, c_idx, val_s in updates_to_make:
@@ -502,20 +544,30 @@ if tab_picker is not None:
                     c_score, c_save = st.columns([2, 1])
                     score_val = c_score.number_input(f"Nhập điểm {col_target_sel.upper()}:", min_value=0.0, max_value=10.0, value=8.0, step=0.25, format="%.2f")
                     if c_save.button("💾 Lưu điểm TX"):
-                        col_index = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(col_target_sel) + 4
+                        has_name_col = "ho_va_ten" in df_grades.columns
+                        col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(col_target_sel) + (5 if has_name_col else 4)
                         try:
                             matched_row = None
-                            if not df_grades.empty and "stt" in df_grades.columns and "lop" in df_grades.columns:
-                                mask = (df_grades["stt"].astype(str).str.strip() == stt_hien_thi) & \
-                                       (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                            if not df_grades.empty and "lop" in df_grades.columns:
+                                if has_name_col:
+                                    mask = (df_grades["ho_va_ten"].astype(str).str.strip().str.lower() == ten_hien_thi.lower()) & \
+                                           (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                else:
+                                    mask = (df_grades["stt"].astype(str).str.strip() == stt_hien_thi) & \
+                                           (df_grades["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
                                 if mask.any():
                                     matched_row = mask.idxmax() + 2
                             
                             if matched_row:
-                                ws_grades.update_cell(matched_row, col_index, float(score_val))
+                                ws_grades.update_cell(matched_row, col_idx, float(score_val))
+                                ws_grades.update_cell(matched_row, 1, stt_hien_thi)
                             else:
-                                new_row = [stt_hien_thi, str(selected_lop), selected_mon] + [""] * 6
-                                new_row[col_index - 1] = float(score_val)
+                                if has_name_col:
+                                    new_row = [stt_hien_thi, ten_hien_thi, str(selected_lop), selected_mon] + [""] * 6
+                                    new_row[col_idx - 1] = float(score_val)
+                                else:
+                                    new_row = [stt_hien_thi, str(selected_lop), selected_mon] + [""] * 6
+                                    new_row[col_idx - 1] = float(score_val)
                                 ws_grades.append_row(new_row, value_input_option="USER_ENTERED")
                             
                             st.success("Đã lưu điểm thành công!")
@@ -534,9 +586,9 @@ if tab_picker is not None:
                         try:
                             ws_logs.append_row([
                                 f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
-                                str(date.today()), "PLUS", float(delta_val), reason, ""
+                                str(date.today()), "PLUS", float(delta_val), reason, ten_hien_thi
                             ], value_input_option="USER_ENTERED")
-                            st.success(f"Đã cộng +{delta_val:.2f} điểm!")
+                            st.success(f"Đã cộng +{delta_val:.2f} điểm cho {ten_hien_thi}!")
                             time.sleep(0.5)
                             st.cache_data.clear()
                             st.rerun()
@@ -551,7 +603,7 @@ if tab_picker is not None:
                         try:
                             ws_logs.append_row([
                                 f"L{len(df_logs)+1}", stt_hien_thi, str(selected_lop), selected_mon,
-                                str(date.today()), "MINUS", float(minus_val), err_type, ""
+                                str(date.today()), "MINUS", float(minus_val), err_type, ten_hien_thi
                             ], value_input_option="USER_ENTERED")
                             st.warning(f"Đã ghi nhận trừ {minus_val:.2f} điểm!")
                             time.sleep(0.5)
@@ -569,12 +621,15 @@ with tab_leaderboard:
         merged_view["Diem_Thuc"] = (merged_view["Diem_Cong"] + merged_view["Diem_Tru"]).round(2)
         
         last_plus_index = {}
-        if not current_logs.empty and "type" in current_logs.columns and "stt" in current_logs.columns:
+        if not current_logs.empty and "type" in current_logs.columns:
             plus_only = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
+            has_name_log = "ho_va_ten" in plus_only.columns and plus_only["ho_va_ten"].str.len().sum() > 0
             for idx, r in plus_only.iterrows():
-                last_plus_index[str(r["stt"]).strip()] = idx
+                key_id = str(r["ho_va_ten"]).strip() if has_name_log else str(r["stt"]).strip()
+                last_plus_index[key_id] = idx
         
-        merged_view["Last_Plus_Order"] = merged_view["stt_display"].astype(str).map(last_plus_index).fillna(-1)
+        lookup_col = "ho_va_ten" if ("ho_va_ten" in current_logs.columns and current_logs["ho_va_ten"].str.len().sum() > 0) else "stt_display"
+        merged_view["Last_Plus_Order"] = merged_view[lookup_col].astype(str).str.strip().map(last_plus_index).fillna(-1)
         
         top_active = merged_view[merged_view["Diem_Thuc"] > 0].sort_values(
             by=["Diem_Thuc", "Last_Plus_Order"], 

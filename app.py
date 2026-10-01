@@ -73,7 +73,7 @@ if "MASTER_KEY" in st.secrets:
 elif "gcp_service_account" in st.secrets and "MASTER_KEY" in st.secrets["gcp_service_account"]:
     MASTER_KEY = str(st.secrets["gcp_service_account"]["MASTER_KEY"]).strip()
 else:
-    st.error("⚠️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
+    st.error("⚠️️ Hệ thống chưa được cấu hình chìa khóa bảo mật (MASTER_KEY) trong Secrets!")
     st.stop()
 
 query_params = st.query_params
@@ -275,13 +275,11 @@ else:
 # Ghép dữ liệu chuẩn xác ưu tiên theo HỌ VÀ TÊN + LỚP
 if not current_students.empty:
     if not current_grades.empty:
-        # Nếu bảng điểm đã có cột ho_va_ten -> ghép theo Tên + Lớp
         if "ho_va_ten" in current_grades.columns and current_grades["ho_va_ten"].str.len().sum() > 0:
             cols_to_drop = [c for c in ["stt", "lop", "mon_hoc"] if c in current_grades.columns]
             grades_subset = current_grades.drop(columns=cols_to_drop, errors="ignore")
             merged_view = current_students.merge(grades_subset, on="ho_va_ten", how="left")
         else:
-            # Tương thích ngược nếu sheet chưa cập nhật cột tên: ghép theo stt + lop
             merged_view = current_students.merge(current_grades, left_on=["stt_display", "lop"], right_on=["stt", "lop"], how="left")
     else:
         merged_view = current_students.copy()
@@ -297,7 +295,6 @@ if not current_logs.empty and "type" in current_logs.columns:
     plus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "PLUS"]
     minus_df = current_logs[current_logs["type"].astype(str).str.upper().str.strip() == "MINUS"]
     
-    # Ưu tiên map theo HỌ VÀ TÊN nếu có, ngược lại map theo STT
     if "ho_va_ten" in current_logs.columns and current_logs["ho_va_ten"].str.len().sum() > 0:
         plus_map = plus_df.groupby("ho_va_ten")["delta"].sum().to_dict()
         minus_map = minus_df.groupby("ho_va_ten")["delta"].sum().to_dict()
@@ -370,7 +367,7 @@ with tab_tv:
                 minus_score = st.select_slider("Mức phạt (-):", options=[-0.25, -0.5, -0.75, -1.0], value=-0.25, format_func=lambda x: f"{x:.2f}")
             with col_btn:
                 st.write("")
-                if st.button("⚠️ Ghi nhận lỗi", type="secondary", key="btn_quick_sub"):
+                if st.button("⚠️️ Ghi nhận lỗi", type="secondary", key="btn_quick_sub"):
                     ws_logs.append_row([
                         f"L{len(df_logs)+1}", target_stt, str(selected_lop), selected_mon,
                         str(date.today()), "MINUS", float(minus_score), "Nhắc nhở nề nếp / học tập", target_name
@@ -390,7 +387,6 @@ with tab_tv:
             rename_dict[c] = c.upper()
         display_df.rename(columns=rename_dict, inplace=True)
 
-        # Hàm chuẩn hóa hiển thị: đúng 2 chữ số thập phân, ô trống hiển thị sạch sẽ
         def format_tx_score(val):
             if pd.isna(val) or str(val).strip() == "" or str(val).strip().lower() == "none":
                 return ""
@@ -413,107 +409,121 @@ with tab_tv:
             height=450
         )
 
-# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (KHÓA CHÍNH: HỌ VÀ TÊN)
+# TAB THÊM MỚI: NHẬP ĐIỂM HÀNG LOẠT (KHÓA CHỐNG BẤM TRÙNG & CHUYỂN GIAO DIỆN BÁO THÀNH CÔNG)
 if st.session_state["authenticated"] and tab_bulk_tx is not None:
     with tab_bulk_tx:
-        st.markdown(f"### 📝 Nhập điểm TX hàng loạt — Lớp {selected_lop} ({selected_mon})")
-        
-        c_sel_col, c_help = st.columns([1, 2])
-        with c_sel_col:
-            selected_tx_col = st.selectbox("📌 Chọn cột TX cần vào điểm:", tx_cols, key="bulk_tx_target")
-        with c_help:
-            st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm $\\rightarrow$ bấm **Enter** hoặc phím **$\\downarrow$** để tự động chuyển sang bạn kế tiếp.")
+        if "bulk_save_done" not in st.session_state:
+            st.session_state["bulk_save_done"] = False
 
-        if not merged_view.empty:
-            edit_df = merged_view[["stt_display", "ho_va_ten", selected_tx_col]].copy()
-            edit_df[selected_tx_col] = pd.to_numeric(edit_df[selected_tx_col], errors="coerce")
+        if st.session_state["bulk_save_done"]:
+            st.success("🎉 **ĐÃ ĐỒNG BỘ THÀNH CÔNG BẢNG ĐIỂM LÊN GOOGLE SHEETS!**")
+            st.balloons()
+            st.info("Toàn bộ điểm số đã được lưu an toàn vào cơ sở dữ liệu hệ thống.")
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("📋 Xem bảng tổng hợp chiếu TV", type="primary", use_container_width=True):
+                    st.session_state["bulk_save_done"] = False
+                    st.rerun()
+            with col_b2:
+                if st.button("📝 Tiếp tục nhập cột điểm khác", use_container_width=True):
+                    st.session_state["bulk_save_done"] = False
+                    st.rerun()
+        else:
+            st.markdown(f"### 📝 Nhập điểm TX hàng loạt — Lớp {selected_lop} ({selected_mon})")
+            
+            c_sel_col, c_help = st.columns([1, 2])
+            with c_sel_col:
+                selected_tx_col = st.selectbox("📌 Chọn cột TX cần vào điểm:", tx_cols, key="bulk_tx_target")
+            with c_help:
+                st.caption("💡 **Mẹo nhập siêu tốc:** Bấm đúp vào ô điểm học sinh đầu tiên, gõ điểm $\\rightarrow$ bấm **Enter** hoặc phím **$\\downarrow$** để tự động chuyển sang bạn kế tiếp.")
 
-            edited_data = st.data_editor(
-                edit_df,
-                column_config={
-                    "stt_display": st.column_config.TextColumn("STT", disabled=True, width="small"),
-                    "ho_va_ten": st.column_config.TextColumn("Họ và Tên", disabled=True, width="medium"),
-                    selected_tx_col: st.column_config.NumberColumn(
-                        f"Điểm {selected_tx_col.upper()}",
-                        help="Nhập từ 0 đến 10",
-                        min_value=0.0,
-                        max_value=10.0,
-                        step=0.25,
-                        format="%.2f"
-                    )
-                },
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed",
-                key="editor_bulk_tx"
-            )
+            if not merged_view.empty:
+                edit_df = merged_view[["stt_display", "ho_va_ten", selected_tx_col]].copy()
+                edit_df[selected_tx_col] = pd.to_numeric(edit_df[selected_tx_col], errors="coerce")
 
-            if st.button(f"💾 LƯU TOÀN BỘ ĐIỂM {selected_tx_col.upper()} LÊN HỆ THỐNG", type="primary", use_container_width=True):
-                with st.spinner("Đang cập nhật bảng điểm lên Google Sheets..."):
-                    try:
-                        all_grades_records = ws_grades.get_all_records()
-                        df_all_g = pd.DataFrame(all_grades_records)
-                        
-                        has_name_col = False
-                        if not df_all_g.empty:
-                            df_all_g.columns = [str(c).lower().strip() for c in df_all_g.columns]
-                            has_name_col = "ho_va_ten" in df_all_g.columns
+                edited_data = st.data_editor(
+                    edit_df,
+                    column_config={
+                        "stt_display": st.column_config.TextColumn("STT", disabled=True, width="small"),
+                        "ho_va_ten": st.column_config.TextColumn("Họ và Tên", disabled=True, width="medium"),
+                        selected_tx_col: st.column_config.NumberColumn(
+                            f"Điểm {selected_tx_col.upper()}",
+                            help="Nhập từ 0 đến 10",
+                            min_value=0.0,
+                            max_value=10.0,
+                            step=0.25,
+                            format="%.2f"
+                        )
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    key="editor_bulk_tx"
+                )
 
-                        # Xác định vị trí cột TX (nếu có cột họ tên thì +5, nếu chưa có thì +4)
-                        tx_base_offset = 5 if has_name_col else 4
-                        col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(selected_tx_col) + tx_base_offset
-                        
-                        updates_to_make = []
-                        rows_to_append = []
-
-                        for _, r in edited_data.iterrows():
-                            val = r[selected_tx_col]
-                            if pd.isna(val) or str(val).strip() == "":
-                                continue
+                if st.button(f"💾 LƯU TOÀN BỘ ĐIỂM {selected_tx_col.upper()} LÊN HỆ THỐNG", type="primary", use_container_width=True):
+                    st.toast("⏳ Đang kết nối Google Sheets, vui lòng không nhấn lại nút...", icon="⚡")
+                    with st.spinner("Đang cập nhật bảng điểm lên Google Sheets..."):
+                        try:
+                            all_grades_records = ws_grades.get_all_records()
+                            df_all_g = pd.DataFrame(all_grades_records)
                             
-                            stt_val = str(r["stt_display"]).strip()
-                            name_val = str(r["ho_va_ten"]).strip()
-                            score_val = float(val)
+                            has_name_col = False
+                            if not df_all_g.empty:
+                                df_all_g.columns = [str(c).lower().strip() for c in df_all_g.columns]
+                                has_name_col = "ho_va_ten" in df_all_g.columns
 
-                            # Khớp dòng ưu tiên theo HỌ VÀ TÊN + LỚP
-                            found_idx = None
-                            if not df_all_g.empty and "lop" in df_all_g.columns:
-                                if has_name_col:
-                                    mask = (df_all_g["ho_va_ten"].astype(str).str.strip().str.lower() == name_val.lower()) & \
-                                           (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
-                                else:
-                                    mask = (df_all_g["stt"].astype(str).str.strip() == stt_val) & \
-                                           (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                            tx_base_offset = 5 if has_name_col else 4
+                            col_idx = ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6"].index(selected_tx_col) + tx_base_offset
+                            
+                            updates_to_make = []
+                            rows_to_append = []
+
+                            for _, r in edited_data.iterrows():
+                                val = r[selected_tx_col]
+                                if pd.isna(val) or str(val).strip() == "":
+                                    continue
                                 
-                                if mask.any():
-                                    found_idx = mask.idxmax() + 2
+                                stt_val = str(r["stt_display"]).strip()
+                                name_val = str(r["ho_va_ten"]).strip()
+                                score_val = float(val)
 
-                            if found_idx:
-                                updates_to_make.append((found_idx, col_idx, score_val))
-                                # Cập nhật lại STT hiện tại để luôn chuẩn xác
-                                updates_to_make.append((found_idx, 1, stt_val))
-                            else:
-                                if has_name_col:
-                                    new_r = [stt_val, name_val, str(selected_lop), selected_mon] + [""] * 6
-                                    new_r[col_idx - 1] = score_val
+                                found_idx = None
+                                if not df_all_g.empty and "lop" in df_all_g.columns:
+                                    if has_name_col:
+                                        mask = (df_all_g["ho_va_ten"].astype(str).str.strip().str.lower() == name_val.lower()) & \
+                                               (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                    else:
+                                        mask = (df_all_g["stt"].astype(str).str.strip() == stt_val) & \
+                                               (df_all_g["lop"].astype(str).str.strip().str.upper() == str(selected_lop).strip().upper())
+                                    
+                                    if mask.any():
+                                        found_idx = mask.idxmax() + 2
+
+                                if found_idx:
+                                    updates_to_make.append((found_idx, col_idx, score_val))
+                                    updates_to_make.append((found_idx, 1, stt_val))
                                 else:
-                                    new_r = [stt_val, str(selected_lop), selected_mon] + [""] * 6
-                                    new_r[col_idx - 1] = score_val
-                                rows_to_append.append(new_r)
+                                    if has_name_col:
+                                        new_r = [stt_val, name_val, str(selected_lop), selected_mon] + [""] * 6
+                                        new_r[col_idx - 1] = score_val
+                                    else:
+                                        new_r = [stt_val, str(selected_lop), selected_mon] + [""] * 6
+                                        new_r[col_idx - 1] = score_val
+                                    rows_to_append.append(new_r)
 
-                        for r_idx, c_idx, val_s in updates_to_make:
-                            ws_grades.update_cell(r_idx, c_idx, val_s)
-                        
-                        if rows_to_append:
-                            ws_grades.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+                            for r_idx, c_idx, val_s in updates_to_make:
+                                ws_grades.update_cell(r_idx, c_idx, val_s)
+                            
+                            if rows_to_append:
+                                ws_grades.append_rows(rows_to_append, value_input_option="USER_ENTERED")
 
-                        st.success(f"🎉 Đã lưu thành công điểm {selected_tx_col.upper()} cho lớp {selected_lop}!")
-                        time.sleep(1.0)
-                        st.cache_data.clear()
-                        st.rerun()
+                            st.cache_data.clear()
+                            st.session_state["bulk_save_done"] = True
+                            st.rerun()
 
-                    except Exception as err:
-                        st.error(f"Lỗi khi lưu bảng điểm: {err}")
+                        except Exception as err:
+                            st.error(f"Lỗi khi lưu bảng điểm: {err}")
 
 # TAB 2: QUAY TÊN NGẪU NHIÊN
 if tab_picker is not None:
@@ -685,4 +695,5 @@ if tab_export is not None:
             for c in tx_cols:
                 rename_exp[c] = c.upper()
             export_df.rename(columns=rename_exp, inplace=True)
-            st.dataframe(export_df, hide_index=True, use_container_width=True)
+            export_fmt = {c.upper(): format_tx_score for c in tx_cols}
+            st.dataframe(export_df.style.format(export_fmt), hide_index=True, use_container_width=True)

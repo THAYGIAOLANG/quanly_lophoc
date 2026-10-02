@@ -424,7 +424,7 @@ with tab_tv:
 
         format_mapping = {
             "⭐ Điểm (+)": "{:.2f}",
-            "⚠️ Nhắc nhở (-)": "{:.2f}"
+            "⚠️️ Nhắc nhở (-)": "{:.2f}"
         }
         for c in tx_cols:
             format_mapping[c.upper()] = format_tx_score

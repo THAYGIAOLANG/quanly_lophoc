@@ -19,16 +19,35 @@ if "authenticated" not in st.session_state:
 # CSS giao diện: Thu nhỏ và khóa cứng Sidebar, tối ưu không gian hiển thị
 base_css = """
     <style>
-        /* 1. Thu nhỏ và khoá cố định Sidebar (255px) */
+        /* 1. Thu nhỏ Sidebar xuống 255px */
         section[data-testid="stSidebar"] {
             width: 255px !important;
             min-width: 255px !important;
         }
-        /* Ẩn hoàn toàn nút mũi tên thu gọn/đóng sidebar */
-        [data-testid="stSidebarCollapseButton"],
-        button[data-testid="baseButton-headerNoPadding"],
-        [data-testid="collapsedControl"] {
+
+        /* Ẩn nút gập/đóng KHI SIDEBAR ĐANG MỞ (để không bấm nhầm) */
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+        section[data-testid="stSidebar"] button[data-testid="baseButton-headerNoPadding"] {
             display: none !important;
+        }
+
+        /* NÚT MỞ SIDEBAR: Luôn hiện nổi bật màu cam ở góc trái nếu sidebar đang bị đóng */
+        [data-testid="collapsedControl"] {
+            display: flex !important;
+            visibility: visible !important;
+            z-index: 9999999 !important;
+            position: fixed !important;
+            top: 15px !important;
+            left: 15px !important;
+            background-color: #ff512f !important;
+            color: #ffffff !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+            padding: 4px !important;
+        }
+        [data-testid="collapsedControl"] svg {
+            fill: #ffffff !important;
+            stroke: #ffffff !important;
         }
 
         /* 2. Ẩn thanh header Streamlit nhưng giữ giao diện sạch */

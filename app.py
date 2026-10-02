@@ -16,27 +16,35 @@ st.set_page_config(page_title="THẦY HOÀNG HIỀN HẬU", layout="wide", initi
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
-# CSS giao diện chuẩn (Tách riêng chuỗi thường để chống lỗi cú pháp dấu ngoặc nhọn)
+# CSS giao diện: Thu nhỏ và khóa cứng Sidebar, tối ưu không gian hiển thị
 base_css = """
     <style>
-        /* Ẩn nền và menu của header nhưng GIỮ LẠI nút mở sidebar */
+        /* 1. Thu nhỏ và khoá cố định Sidebar (255px) */
+        section[data-testid="stSidebar"] {
+            width: 255px !important;
+            min-width: 255px !important;
+        }
+        /* Ẩn hoàn toàn nút mũi tên thu gọn/đóng sidebar */
+        [data-testid="stSidebarCollapseButton"],
+        button[data-testid="baseButton-headerNoPadding"],
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+
+        /* 2. Ẩn thanh header Streamlit nhưng giữ giao diện sạch */
         header[data-testid="stHeader"] {
             background-color: transparent !important;
         }
-        /* Ẩn các nút Deploy, 3 chấm menu góc trên bên phải */
         header[data-testid="stHeader"] [data-testid="stToolbar"] {
             display: none !important;
         }
-        /* Luôn làm nổi bật nút mũi tên mở sidebar ở góc trên bên trái */
-        [data-testid="stSidebarCollapsedControl"] {
-            display: block !important;
-            color: #ff512f !important;
-        }
+
+        /* 3. Tối ưu khoảng đệm nội dung chính cho màn hình TV */
         .block-container {
-            padding-top: 1.5rem !important;
+            padding-top: 1.2rem !important;
             padding-bottom: 1rem !important;
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
         }
         .teacher-banner {
             background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
@@ -51,7 +59,7 @@ base_css = """
             margin-bottom: 15px;
         }
         .big-font { font-size: 22px !important; font-weight: bold; }
-        .stButton>button { width: 100%; height: 45px; font-size: 16px !important; font-weight: bold; }
+        .stButton>button { width: 100%; height: 42px; font-size: 15px !important; font-weight: bold; }
     </style>
 """
 st.markdown(base_css, unsafe_allow_html=True)
@@ -231,7 +239,7 @@ if not st.session_state["authenticated"]:
     current_session = st.session_state["qr_session_id"]
     auth_url = f"https://lophocthayhoanghienhau.streamlit.app/?auth_token={current_session}"
     
-    qr = qrcode.QRCode(box_size=5, border=2)
+    qr = qrcode.QRCode(box_size=4, border=2)
     qr.add_data(auth_url)
     qr.make(fit=True)
     img_qr = qr.make_image(fill_color="black", back_color="white")
@@ -409,7 +417,7 @@ with tab_tv:
     if not merged_view.empty:
         cols_show = [c for c in ["stt_display", "ho_va_ten", "Diem_Cong", "Diem_Tru"] + tx_cols if c in merged_view.columns]
         display_df = merged_view[cols_show].copy()
-        rename_dict = {"stt_display": "STT", "ho_va_ten": "Họ và Tên", "Diem_Cong": "⭐ Điểm (+)", "Diem_Tru": "⚠️️ Nhắc nhở (-)"}
+        rename_dict = {"stt_display": "STT", "ho_va_ten": "Họ và Tên", "Diem_Cong": "⭐ Điểm (+)", "Diem_Tru": "⚠️ Nhắc nhở (-)"}
         for c in tx_cols:
             rename_dict[c] = c.upper()
         display_df.rename(columns=rename_dict, inplace=True)
@@ -424,7 +432,7 @@ with tab_tv:
 
         format_mapping = {
             "⭐ Điểm (+)": "{:.2f}",
-            "⚠️️ Nhắc nhở (-)": "{:.2f}"
+            "⚠️ Nhắc nhở (-)": "{:.2f}"
         }
         for c in tx_cols:
             format_mapping[c.upper()] = format_tx_score
